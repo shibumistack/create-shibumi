@@ -1,0 +1,9 @@
+{
+  "name": "create-shibumi",
+  "version": "0.0.1",
+  "description": "Scaffold a new Shibumi Stack project. See https://shibumistack.dev",
+  "keywords": ["shibumi", "stack", "create", "scaffold", "bun", "hono", "sqlite", "alpine", "typescript"],
+  "homepage": "https://shibumistack.dev",
+  "repository": "github:shibumistack/create-shibumi",
+  "license": "MIT"
+}
