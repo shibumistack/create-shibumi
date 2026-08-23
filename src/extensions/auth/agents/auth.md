@@ -42,12 +42,12 @@ app.use("/account/*", requireAuth);
 
 - `hono/csrf` runs on every `/auth` mutation (Origin check on form-shaped posts); cross-origin JSON is stopped by the browser preflight.
 - The rate limiter is in-memory and per-process, bounded at 10,000 tracked windows (oldest evicted beyond that). That matches the single-container deployment; counts reset on restart. Replace it before scaling to multiple processes.
-- Rate keys use `x-forwarded-for`, which is only trustworthy behind the deployment proxy. Directly exposed apps share one bucket.
+- Rate keys prefer the socket peer address (`getConnInfo`). `x-forwarded-for` is trusted only when the direct peer is a local reverse proxy (the shibumi-server / Caddy deployment) or when there is no socket peer (test context), so a directly reachable app cannot be spoofed into rotating buckets.
 
 ## Accepted tradeoffs
 
 - Registration returns 409 for a taken email (standard enumeration tradeoff; registration reveals existence by nature). The login and login-link flows stay uniform in their responses; a registered email still costs marginally more server time on login-link requests.
-- `GET /auth/verify` changes state (sets the session); that is inherent to email login links. Tokens are single-use, 15-minute, and sha256-hashed at rest.
+- `GET /auth/verify` changes state (sets the session); that is inherent to email login links. Tokens are single-use, 15-minute, and sha256-hashed at rest. A mail scanner that prefetches the link consumes the token before the user clicks; if that affects your users, serve a confirm page that POSTs the token instead.
 - The login-link token rides in the URL query, so it can land in proxy access logs and browser history. Single use plus the 15-minute expiry bound the exposure; anyone who can read your access logs in real time has bigger levers.
 - Rate limits: per IP+email and per email (50/15 min) on login, per IP (5/15 min) and per email (5/15 min, uniform response) on login-link. IP keys trust `x-forwarded-for` and are only meaningful behind the deployment proxy.
 

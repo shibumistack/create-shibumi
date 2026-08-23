@@ -1,10 +1,10 @@
 // Auth routes, mounted at /auth by the installer. JSON bodies in, JSON out.
 // CSRF middleware (Origin check) covers every mutation; cross-origin JSON
 // posts are additionally blocked by the browser preflight. Rate limits key on
-// the client IP, which is only meaningful behind the deployment proxy that
-// sets x-forwarded-for; direct-exposed deployments share the "local" bucket.
+// the client IP; see clientKey for how x-forwarded-for is trusted.
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { getConnInfo } from "hono/bun";
 import { csrf } from "hono/csrf";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
@@ -71,8 +71,34 @@ function fakeRegisterResponse(c: Context, email: string): Response {
 
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 
+function isPrivateAddress(addr: string): boolean {
+  const ip = addr.replace(/^::ffff:/, "");
+  return (
+    ip === "127.0.0.1" ||
+    ip === "::1" ||
+    ip.startsWith("10.") ||
+    ip.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+    ip.startsWith("fd") ||
+    ip.startsWith("fc")
+  );
+}
+
+// Rate-limit key. x-forwarded-for is trusted only when the direct socket peer
+// is a local reverse proxy (the shibumi-server / Caddy deployment) or when
+// there is no socket peer at all (non-served test context). A directly
+// reachable production app has a public peer and keys on it, so a spoofed
+// x-forwarded-for cannot rotate rate-limit buckets.
 function clientKey(c: Context): string {
-  return c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  let peer = "";
+  try {
+    peer = getConnInfo(c).remote.address ?? "";
+  } catch {
+    peer = "";
+  }
+  const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
+  if (forwarded && (!peer || isPrivateAddress(peer))) return forwarded;
+  return peer || "local";
 }
 
 function tooMany(c: Context): Response {
@@ -88,6 +114,8 @@ async function jsonBody(c: Context): Promise<unknown> {
 }
 
 function setSessionCookie(c: Context, token: string): void {
+  // A token-bearing response must never be cached by a shared proxy.
+  c.header("Cache-Control", "no-store");
   // Secure works in local development too: browsers treat localhost as a
   // secure context.
   setCookie(c, SESSION_COOKIE, token, {
