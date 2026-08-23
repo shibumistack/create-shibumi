@@ -25,7 +25,7 @@ const SERVER_HOSTNAME = /^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const SERVER_CLI = "~/.local/bin/shibumi-server";
 const LATEST_SOURCE = "https://shibumistack.dev/ship/latest.ts";
-const CURRENT_SOURCE = "https://shibumistack.dev/ship/v42.ts";
+const CURRENT_SOURCE = "https://shibumistack.dev/ship/v43.ts";
 let sshControlDirectory: string | undefined;
 let sshControlTarget: string | undefined;
 
@@ -576,6 +576,7 @@ export function staticHttpdConf(has404: boolean): string {
     ".md:text/plain",
     ".txt:text/plain",
     ".json:application/json",
+    ".xml:application/xml",
     ".svg:image/svg+xml",
     ".webp:image/webp",
     ".avif:image/avif",
@@ -796,7 +797,7 @@ async function prepareCompose(): Promise<boolean> {
       message: "What are you shipping?",
       options: [
         { value: "server", label: "Bun server app: container runs your start script" },
-        { value: "static", label: "Static output: prebuilt files from any framework" },
+        { value: "static", label: "Static site: prebuilt files from any framework" },
       ],
     });
     if (isCancel(kind)) throw new Error(missingComposeMessage(branch, []));
