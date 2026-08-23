@@ -14,6 +14,7 @@ const { sessions } = await import("../src/db/schema-auth");
 const {
   consumeLoginToken,
   createLoginToken,
+  deliverLoginLink,
   createSession,
   createUser,
   hashToken,
@@ -254,6 +255,27 @@ describe("login links", () => {
       .set({ expiresAt: new Date(Date.now() - 1000).toISOString() })
       .where(eq(loginTokens.tokenHash, hashToken(token!)));
     expect(await consumeLoginToken(token!)).toBeNull();
+  });
+});
+
+describe("login-link delivery seam", () => {
+  it("refuses to emit links unless NODE_ENV is explicitly development", async () => {
+    const original = process.env.NODE_ENV;
+    try {
+      delete process.env.NODE_ENV;
+      await expect(deliverLoginLink("user@example.com", "https://app.example/x")).rejects.toThrow(
+        "not wired"
+      );
+      process.env.NODE_ENV = "production";
+      await expect(deliverLoginLink("user@example.com", "https://app.example/x")).rejects.toThrow(
+        "not wired"
+      );
+      process.env.NODE_ENV = "development";
+      await deliverLoginLink("user@example.com", "https://app.example/x");
+    } finally {
+      if (original === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = original;
+    }
   });
 });
 

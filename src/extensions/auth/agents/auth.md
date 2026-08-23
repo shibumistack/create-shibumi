@@ -32,7 +32,7 @@ app.use("/account/*", requireAuth);
 
 ## Environment
 
-- `APP_ORIGIN` (validated in `src/env.ts`): canonical origin for login links, e.g. `https://app.example.com`. Required in production; without it login-link delivery is refused (uniform response, error logged) so a poisoned Host header can never redirect tokens. Development falls back to the request origin.
+- `APP_ORIGIN` (validated in `src/env.ts`): canonical origin for login links, e.g. `https://app.example.com`. Login-link building is fail-closed: only `NODE_ENV=development` falls back to the request origin; every other value (production, or unset) requires `APP_ORIGIN` and requires it to be `https`, so a poisoned Host header can never redirect tokens and tokens never ride plaintext. The generated Dockerfile sets `NODE_ENV=production`; keep it set in every deployment.
 
 ## Honeypot
 
@@ -53,7 +53,7 @@ app.use("/account/*", requireAuth);
 
 ## Wiring login-link delivery
 
-`deliverLoginLink` in `src/lib/auth.ts` logs the URL in development and throws in production until wired. With the email extension installed:
+`deliverLoginLink` in `src/lib/auth.ts` logs the URL only when `NODE_ENV=development` and throws otherwise until wired. With the email extension installed:
 
 ```ts
 import { sendEmail } from "./email";

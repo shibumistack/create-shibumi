@@ -15,6 +15,9 @@ COPY public ./public
 COPY package.json ./
 RUN mkdir -p /data && chown bun:bun /data
 USER bun
+# Production mode: extensions (auth) gate security behavior on this, e.g.
+# refusing to build login links from the Host header. Never unset it here.
+ENV NODE_ENV=production
 ENV DB_PATH=/data/app.db
 EXPOSE 3000
 CMD ["bun", "dist/server.js"]

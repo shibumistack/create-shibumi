@@ -94,7 +94,9 @@ export async function applyMigrations(database: Database, dir?: string): Promise
     const sql = await Bun.file(migration.path).text();
     // Transaction control inside a migration would escape the runner's
     // transaction and could commit partial changes without a journal row.
-    if (/^\s*(BEGIN|COMMIT|ROLLBACK|END)\b/im.test(sql)) {
+    // Anchored at start-of-file or after a `;` so it also catches control
+    // that follows another statement on the same line.
+    if (/(^|;)\s*(BEGIN|COMMIT|ROLLBACK|END)\b/im.test(sql)) {
       throw new Error(`migration ${migration.name} contains transaction control (BEGIN/COMMIT/ROLLBACK); the runner owns the transaction. Remove those statements.`);
     }
     database.exec("BEGIN IMMEDIATE;");

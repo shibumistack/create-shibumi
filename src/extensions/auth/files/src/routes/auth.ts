@@ -155,16 +155,20 @@ authRoutes.post("/login-link", async (c) => {
   const token =
     honeypotTripped(body) || !emailAllowed ? null : await createLoginToken(parsed.data.email);
   if (token) {
-    // Links are built from APP_ORIGIN, never from the Host header, so a
-    // poisoned Host cannot redirect tokens in production. Development falls
-    // back to the request origin for convenience.
+    // Links are built from APP_ORIGIN, never the Host header, so a poisoned
+    // Host cannot redirect tokens. Fail-closed: the request-origin fallback
+    // is used only when NODE_ENV is explicitly "development"; any other value
+    // (including unset) requires APP_ORIGIN, and it must be https so tokens
+    // never ride plaintext.
     const env = loadEnv();
-    const base =
-      env.APP_ORIGIN ??
-      (process.env.NODE_ENV === "production" ? null : new URL(c.req.url).origin);
+    const isDevelopment = process.env.NODE_ENV === "development";
+    const base = env.APP_ORIGIN ?? (isDevelopment ? new URL(c.req.url).origin : null);
     try {
       if (!base) {
-        throw new Error("APP_ORIGIN is not set; refusing to build login links from the Host header in production.");
+        throw new Error("APP_ORIGIN is not set; refusing to build login links from the Host header. Set APP_ORIGIN (https://...).");
+      }
+      if (!isDevelopment && !base.startsWith("https://")) {
+        throw new Error(`APP_ORIGIN must be https in production, got ${base}.`);
       }
       const url = new URL(`/auth/verify?token=${token}`, base).toString();
       await deliverLoginLink(normalizeEmail(parsed.data.email), url);

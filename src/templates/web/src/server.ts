@@ -5,6 +5,9 @@ const env = loadEnv();
 
 const server = Bun.serve({
   port: env.PORT,
+  // Cap request bodies so an unauthenticated client cannot exhaust memory
+  // before a route (or its rate limiter) runs. Raise it for large uploads.
+  maxRequestBodySize: 1024 * 1024,
   fetch: app.fetch,
 });
 

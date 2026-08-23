@@ -17,6 +17,8 @@ WORKDIR /app
 COPY --from=build /app/dist ./dist
 COPY public ./public
 COPY package.json ./
+# Production mode: extensions gate security behavior on this. Never unset it.
+ENV NODE_ENV=production
 USER bun
 EXPOSE 3000
 CMD ["bun", "dist/server.js"]
