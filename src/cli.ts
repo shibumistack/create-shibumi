@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
+import { cancel, confirm, intro, isCancel, log, outro, select, spinner, text } from "@clack/prompts";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { HELP_TEXT, parseArgs, validateName, type TemplateId } from "./args";
@@ -173,19 +173,20 @@ async function main(): Promise<void> {
     }
   }
 
-  note(
+  const accent = (value: string) => `\x1b[38;5;208m${value}\x1b[0m`;
+  const dim = (value: string) => `\x1b[2m${value}\x1b[22m`;
+  log.message(
     [
-      `cd ${name}`,
-      "bun dev           start the dev server (ctrl+c stops it)",
+      `${accent("next")}  cd ${name}`,
+      `      bun dev           ${dim("start the dev server (ctrl+c stops it)")}`,
       deployNow
-        ? "bun ship          deploy your first commit"
-        : "bun ship:setup    connect your VPS when you're ready",
+        ? `      bun ship          ${dim("deploy your first commit")}`
+        : `      bun ship:setup    ${dim("connect your VPS when you're ready")}`,
       "",
-      "agents.md tells your coding agent the house rules.",
-    ].join("\n"),
-    "next"
+      dim("agents.md tells your coding agent the house rules."),
+    ].join("\n")
   );
-  outro("Docs: https://shibumistack.dev/docs");
+  outro(`Docs: ${accent("https://shibumistack.dev/docs")}`);
 }
 
 main().catch((err: unknown) => {
