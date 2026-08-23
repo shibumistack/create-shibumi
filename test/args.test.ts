@@ -78,6 +78,16 @@ describe("parseArgs", () => {
     expect(ok(["my-app", "--yes", "--template", "static"]).yes).toBe(true);
   });
 
+  it("enforces the Bun version floor with a clear message", () => {
+    const { bunVersionProblem } = require("../src/args") as typeof import("../src/args");
+    expect(bunVersionProblem("1.4.0")).toBeNull();
+    expect(bunVersionProblem("1.10.2")).toBeNull();
+    expect(bunVersionProblem("2.0.0")).toBeNull();
+    expect(bunVersionProblem("1.2.0")).toContain("needs Bun 1.4.0 or newer");
+    expect(bunVersionProblem("1.3.9")).toContain("bun upgrade");
+    expect(bunVersionProblem("1.4.0-canary.1")).toBeNull();
+  });
+
   it("rejects the dropped static-answer flags as unknown", () => {
     // ship:setup owns output dir, build script, and SPA choices now
     // (owner decision, ws7); the create surface must not half-support them.

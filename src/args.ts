@@ -15,6 +15,20 @@ export type ParseResult =
   | { ok: true; args: ParsedArgs }
   | { ok: false; error: string };
 
+// Declared minimum Bun; template lockfiles use lockfileVersion 2, which
+// older Bun cannot parse, so scaffolding must refuse early and clearly.
+export const MINIMUM_BUN = "1.4.0";
+
+export function bunVersionProblem(version: string, minimum = MINIMUM_BUN): string | null {
+  const parse = (value: string) => value.split("-")[0]!.split(".").map((part) => Number(part) || 0);
+  const [major = 0, minor = 0, patch = 0] = parse(version);
+  const [minMajor = 0, minMinor = 0, minPatch = 0] = parse(minimum);
+  const current = major * 1_000_000 + minor * 1_000 + patch;
+  const floor = minMajor * 1_000_000 + minMinor * 1_000 + minPatch;
+  if (current >= floor) return null;
+  return `create-shibumi needs Bun ${minimum} or newer; you are running ${version}. Update with: bun upgrade`;
+}
+
 // Lowercase npm-style project names only; also the directory name.
 export const NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 

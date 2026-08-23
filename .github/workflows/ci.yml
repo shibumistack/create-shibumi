@@ -131,3 +131,24 @@ jobs:
           grep -q 'text/markdown' dist/posts/own-your-source/index.html
       - name: packed verification (tarball install, all templates, extension cycles)
         run: bun run verify:packed
+
+  bun-floor:
+    # Skew gate: everything must work on the declared minimum Bun, not just
+    # the latest the main job uses.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - name: floor scaffold acceptance (full-stack + auth)
+        run: |
+          cd "$(mktemp -d)"
+          bun "$GITHUB_WORKSPACE/src/cli.ts" floor-fs --yes --template full-stack --no-git
+          cd floor-fs
+          bun run shibumi add auth --yes
+          bun test
+          bun run check
+          bun run build

@@ -3,7 +3,7 @@
 import { cancel, confirm, intro, isCancel, log, outro, select, spinner, text } from "@clack/prompts";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { HELP_TEXT, parseArgs, validateName, type TemplateId } from "./args";
+import { HELP_TEXT, bunVersionProblem, parseArgs, validateName, type TemplateId } from "./args";
 import { CreateError, createProject } from "./create";
 
 const VERSION = (
@@ -20,6 +20,11 @@ function exitCancelled(): never {
 }
 
 async function main(): Promise<void> {
+  const bunProblem = bunVersionProblem(Bun.version);
+  if (bunProblem) {
+    process.stderr.write(`${bunProblem}\n`);
+    process.exit(2);
+  }
   const parsed = parseArgs(process.argv.slice(2));
   if (!parsed.ok) {
     process.stderr.write(`${parsed.error}\nRun create-shibumi --help for usage.\n`);
