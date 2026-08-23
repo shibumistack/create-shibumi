@@ -95,11 +95,27 @@ describe("cli", () => {
     expect(existsSync(join(work, "my-app"))).toBe(true);
   });
 
-  it("fails on unavailable templates with exit 1 and no output paths", () => {
-    const r = runCli(["my-app", "--yes", "--template", "full-stack", "--no-install", "--no-git"]);
-    expect(r.code).toBe(1);
-    expect(r.stderr).toContain('Template "full-stack" is not available in this build.');
-    expect(existsSync(join(work, "my-app"))).toBe(false);
+  it("scaffolds the full-stack template with database tooling", () => {
+    const r = runCli(["data-app", "--yes", "--template", "full-stack", "--no-install"]);
+    expect(r.code).toBe(0);
+    const dest = join(work, "data-app");
+    for (const file of [
+      "agents.md",
+      "compose.yaml",
+      "Dockerfile",
+      ".dockerignore",
+      "drizzle.config.ts",
+      "scripts/ship.ts",
+      "scripts/db.ts",
+      "src/db/schema.ts",
+      "src/db/lifecycle.ts",
+      "src/db/migrations/0001_notes.sql",
+      "test/db.test.ts",
+    ]) {
+      expect(existsSync(join(dest, file))).toBe(true);
+    }
+    const pkg = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
+    expect(pkg.scripts["db:migrate"]).toBe("bun scripts/db.ts migrate");
   });
 
   it("scaffolds the web template with the byte-locked ship client", () => {

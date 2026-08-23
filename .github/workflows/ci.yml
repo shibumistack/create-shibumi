@@ -27,7 +27,7 @@ jobs:
           node -e '
             const files = require("/tmp/pack.json")[0].files.map(f => f.path);
             const bad = files.filter(p =>
-              !/^(LICENSE|README\.md|package\.json|src\/(cli|args|create)\.ts|src\/templates\/ship\.ts|src\/templates\/(static|web)\/)/.test(p));
+              !/^(LICENSE|README\.md|package\.json|src\/(cli|args|create)\.ts|src\/templates\/ship\.ts|src\/templates\/(static|web|full-stack)\/)/.test(p));
             if (bad.length) { console.error("unexpected packed files:", bad); process.exit(1); }
             const required = [
               "src/cli.ts", "src/args.ts", "src/create.ts",
@@ -36,6 +36,13 @@ jobs:
               "src/templates/web/gitignore",
               "src/templates/web/.dockerignore",
               "src/templates/web/bun.lock",
+              "src/templates/full-stack/gitignore",
+              "src/templates/full-stack/bun.lock",
+              "src/templates/full-stack/src/db/migrations/0001_notes.sql",
+              "src/templates/full-stack/.dockerignore",
+              "src/templates/full-stack/Dockerfile",
+              "src/templates/full-stack/compose.yaml",
+              "src/templates/full-stack/scripts/db.ts",
               "src/templates/web/public/vendor/alpine-csp-3.16.2.min.js",
             ];
             const missing = required.filter(p => !files.includes(p));
@@ -55,3 +62,22 @@ jobs:
           wget -q -T 5 -O - http://127.0.0.1:39132/healthz | grep -q '"ok":true'
           test "$(docker exec fixture-web whoami)" = "bun"
           docker rm -f fixture-web
+      - name: full-stack template acceptance (scaffold, test, image, persistence)
+        run: |
+          cd "$(mktemp -d)"
+          bun "$GITHUB_WORKSPACE/src/cli.ts" fixture-data --yes --template full-stack --no-git
+          cd fixture-data
+          bun test
+          bun run check
+          bun run build
+          docker build -t fixture-data .
+          docker volume create fsvol
+          docker run -d --rm --name fs1 -v fsvol:/data -p 127.0.0.1:39133:3000 fixture-data
+          sleep 3
+          wget -q -T 5 -O - http://127.0.0.1:39133/api/notes | grep -q 'It persists.'
+          docker exec fs1 bun -e 'import { Database } from "bun:sqlite"; new Database("/data/app.db").query("INSERT INTO notes (title) VALUES (?)").run("survives");'
+          docker rm -f fs1
+          docker run -d --rm --name fs2 -v fsvol:/data -p 127.0.0.1:39133:3000 fixture-data
+          sleep 3
+          wget -q -T 5 -O - http://127.0.0.1:39133/api/notes | grep -q 'survives'
+          docker rm -f fs2

@@ -1,0 +1,14 @@
+.git
+node_modules
+dist
+data
+test
+scripts
+drizzle.config.ts
+.env
+.env.*
+*.md
+.gitignore
+.dockerignore
+compose.yaml
+shibumi-server.json

@@ -13,6 +13,7 @@
     "src/create.ts",
     "src/templates/ship.ts",
     "src/templates/static/",
+    "src/templates/full-stack/",
     "src/templates/web/",
     "README.md",
     "LICENSE"

@@ -1,0 +1,60 @@
+:root {
+  color-scheme: light dark;
+  --paper: #f5f0e4;
+  --ink: #1b130f;
+  --accent: #e95f19;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1b130f;
+    --ink: #f5f0e4;
+    --accent: #ff8648;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: system-ui, sans-serif;
+  font-size: 1.125rem;
+  line-height: 1.6;
+}
+
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 4rem 1.5rem;
+}
+
+h1 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 500;
+}
+
+a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  text-underline-offset: 0.18em;
+}
+
+a:hover {
+  text-decoration-color: var(--accent);
+}
+
+button {
+  font: inherit;
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--ink);
+  background: transparent;
+  color: inherit;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+output {
+  margin-left: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
