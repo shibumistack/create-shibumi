@@ -1,0 +1,29 @@
+{
+  "name": "shibumi-blog",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "check": "astro check",
+    "preview": "astro preview",
+    "ship": "bun scripts/ship.ts",
+    "ship:setup": "bun scripts/ship.ts --setup --static --output-dir dist --build-script build",
+    "ship:update": "bun scripts/ship.ts --update",
+    "ship:status": "bun scripts/ship.ts --status",
+    "ship:logs": "bun scripts/ship.ts --logs"
+  },
+  "dependencies": {
+    "@astrojs/rss": "4.0.19",
+    "@astrojs/sitemap": "3.7.3",
+    "astro": "7.2.4"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.10",
+    "typescript": "5.9.2"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  }
+}

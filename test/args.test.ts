@@ -57,7 +57,7 @@ describe("parseArgs", () => {
   });
 
   it("rejects unknown templates", () => {
-    expect(err(["--template", "blog"])).toContain('Unknown template "blog"');
+    expect(err(["--template", "docs"])).toContain('Unknown template "docs"');
   });
 
   it("rejects extra positionals", () => {

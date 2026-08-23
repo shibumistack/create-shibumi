@@ -1,0 +1,26 @@
+---
+import BaseHead from "../components/BaseHead.astro";
+import { SITE } from "../site";
+
+interface Props {
+  title: string;
+  description: string;
+  ogImage?: string;
+  publishedTime?: Date;
+  markdownPath?: string;
+}
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <BaseHead {...Astro.props} />
+  </head>
+  <body>
+    <header><a href="/">{SITE.name}</a></header>
+    <main>
+      <slot />
+    </main>
+    <footer>© {new Date().getFullYear()} {SITE.author} · <a href="/rss.xml">RSS</a> · <a href="/llms.txt">llms.txt</a></footer>
+  </body>
+</html>

@@ -13,6 +13,7 @@
     "src/create.ts",
     "src/templates/ship.ts",
     "src/templates/static/",
+    "src/templates/blog/",
     "src/templates/full-stack/",
     "src/templates/web/",
     "README.md",
@@ -44,7 +45,7 @@
   },
   "homepage": "https://shibumistack.dev",
   "dependencies": {
-    "@clack/prompts": "0.7.0"
+    "@clack/prompts": "1.7.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -27,7 +27,7 @@ jobs:
           node -e '
             const files = require("/tmp/pack.json")[0].files.map(f => f.path);
             const bad = files.filter(p =>
-              !/^(LICENSE|README\.md|package\.json|src\/(cli|args|create)\.ts|src\/templates\/ship\.ts|src\/templates\/(static|web|full-stack)\/)/.test(p));
+              !/^(LICENSE|README\.md|package\.json|src\/(cli|args|create)\.ts|src\/templates\/ship\.ts|src\/templates\/(static|web|full-stack|blog)\/)/.test(p));
             if (bad.length) { console.error("unexpected packed files:", bad); process.exit(1); }
             const required = [
               "src/cli.ts", "src/args.ts", "src/create.ts",
@@ -36,6 +36,10 @@ jobs:
               "src/templates/web/gitignore",
               "src/templates/web/.dockerignore",
               "src/templates/web/bun.lock",
+              "src/templates/blog/gitignore",
+              "src/templates/blog/bun.lock",
+              "src/templates/blog/public/og-default.png",
+              "src/templates/blog/src/content/blog/own-your-source.md",
               "src/templates/full-stack/gitignore",
               "src/templates/full-stack/bun.lock",
               "src/templates/full-stack/src/db/migrations/0001_notes.sql",
@@ -81,3 +85,20 @@ jobs:
           sleep 3
           wget -q -T 5 -O - http://127.0.0.1:39133/api/notes | grep -q 'survives'
           docker rm -f fs2
+      - name: blog template acceptance (scaffold, build, artifacts)
+        run: |
+          cd "$(mktemp -d)"
+          bun "$GITHUB_WORKSPACE/src/cli.ts" fixture-blog --yes --template blog --no-git
+          cd fixture-blog
+          bun run build
+          test -f dist/index.html
+          test -f dist/404.html
+          test -f dist/rss.xml
+          test -f dist/sitemap-index.xml
+          test -f dist/llms.txt
+          test -f dist/robots.txt
+          test -f dist/og-default.png
+          test -f dist/posts/own-your-source/index.html
+          test -f dist/posts/own-your-source.md
+          grep -q 'og:image' dist/posts/own-your-source/index.html
+          grep -q 'text/markdown' dist/posts/own-your-source/index.html

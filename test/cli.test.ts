@@ -58,7 +58,7 @@ describe("cli", () => {
     const r = runCli(["my-app", "--yes"]);
     expect(r.code).toBe(2);
     expect(r.stderr).toBe(
-      "--yes requires --template (static, web, full-stack).\nRun create-shibumi --help for usage.\n"
+      "--yes requires --template (static, web, full-stack, blog).\nRun create-shibumi --help for usage.\n"
     );
   });
 
@@ -149,5 +149,28 @@ describe("cli", () => {
     expect(pkg.name).toBe("web-app");
     expect(pkg.scripts["ship:status"]).toBe("bun scripts/ship.ts --status");
     expect(pkg.scripts.check).toBe("tsc --noEmit");
+  });
+
+  it("scaffolds the blog template with agentic and SEO surfaces", () => {
+    const r = runCli(["blog-app", "--yes", "--template", "blog", "--no-install"]);
+    expect(r.code).toBe(0);
+    const dest = join(work, "blog-app");
+    for (const file of [
+      "agents.md",
+      "astro.config.mjs",
+      "scripts/ship.ts",
+      "src/content.config.ts",
+      "src/pages/rss.xml.ts",
+      "src/pages/llms.txt.ts",
+      "src/pages/robots.txt.ts",
+      "src/pages/posts/[id].md.ts",
+      "src/content/blog/own-your-source.md",
+      "public/og-default.png",
+      ".gitignore",
+    ]) {
+      expect(existsSync(join(dest, file))).toBe(true);
+    }
+    const pkg = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
+    expect(pkg.scripts["ship:setup"]).toContain("--static --output-dir dist --build-script build");
   });
 });

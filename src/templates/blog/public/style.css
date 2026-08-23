@@ -1,0 +1,147 @@
+/* One small stylesheet: shibumi tokens on a Nue-style semantic skeleton. */
+@layer base, components;
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  :root {
+    color-scheme: light dark;
+    --paper: #f5f0e4;
+    --ink: #1b130f;
+    --muted: #6e6259;
+    --hairline: #e3dbc9;
+    --accent: #e95f19;
+    --font-serif: Georgia, "Times New Roman", serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #1b130f;
+      --ink: #f5f0e4;
+      --muted: #a2968c;
+      --hairline: #372a22;
+      --accent: #ff8648;
+    }
+  }
+
+  body {
+    margin: 0;
+    padding: 1rem 1.5rem;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: system-ui, sans-serif;
+    font-size: 1.125rem;
+    line-height: 1.6;
+
+    > header {
+      border-bottom: 1px solid var(--hairline);
+      padding-bottom: 1rem;
+
+      a {
+        color: var(--ink);
+        font-weight: 600;
+        text-decoration: none;
+      }
+    }
+
+    > main {
+      max-width: 40.5rem;
+      margin: 6rem auto;
+      min-height: 60vh;
+    }
+
+    > footer {
+      border-top: 1px solid var(--hairline);
+      padding-block: 4rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    line-height: 1.15;
+    color: var(--ink);
+  }
+
+  h1 {
+    font-size: 2.5rem;
+    letter-spacing: -0.02em;
+    margin-block: 0.25em;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--accent) 30%, transparent);
+    text-underline-offset: 0.18em;
+  }
+
+  a:hover {
+    text-decoration-color: var(--accent);
+  }
+
+  time {
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+
+  code {
+    font-family: ui-monospace, monospace;
+    font-size: 0.9em;
+  }
+
+  pre {
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  /* Post list: whole-block links, hierarchy from type alone. */
+  .posts {
+    list-style: none;
+    margin: 3rem 0 0;
+    padding: 0;
+
+    li + li {
+      margin-top: 3rem;
+    }
+
+    a {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+
+      h3 {
+        margin-block: 0.25rem;
+        font-size: 1.375rem;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+      }
+    }
+
+    a:hover h3 {
+      color: var(--accent);
+    }
+  }
+
+  .lede {
+    font-size: 1.25rem;
+    color: var(--muted);
+    margin-top: 0;
+  }
+}
