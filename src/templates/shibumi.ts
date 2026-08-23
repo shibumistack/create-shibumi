@@ -20,7 +20,7 @@
  * and re-run.
  */
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 
 export interface ExtensionHook {
@@ -369,9 +369,26 @@ export function planRemove(root: string, ext: ExtensionBundle): PlanResult<Remov
   };
 }
 
+// After deleting a file, drop parent directories this install created, as
+// long as they are empty and inside the project. rmdir refuses non-empty
+// directories, so user content is never at risk.
+function pruneEmptyDirs(root: string, relFile: string): void {
+  const stop = resolve(root);
+  let dir = dirname(join(root, relFile));
+  while (dir !== stop && dir.startsWith(stop + sep)) {
+    try {
+      rmdirSync(dir);
+    } catch {
+      return;
+    }
+    dir = dirname(dir);
+  }
+}
+
 export function applyRemove(root: string, ext: ExtensionBundle, plan: RemovePlan, force: boolean): void {
   for (const relPath of [...plan.deletions, ...(force ? plan.modified : [])]) {
     rmSync(safeProjectPath(root, relPath), { force: true });
+    pruneEmptyDirs(root, relPath);
   }
 
   // Reversal restores the pre-install text: an insert edit collapses back to
@@ -383,7 +400,9 @@ export function applyRemove(root: string, ext: ExtensionBundle, plan: RemovePlan
   }
 
   if (plan.migrationName) {
-    rmSync(safeProjectPath(root, join(MIGRATIONS_DIR, plan.migrationName)), { force: true });
+    const relMigration = join(MIGRATIONS_DIR, plan.migrationName);
+    rmSync(safeProjectPath(root, relMigration), { force: true });
+    pruneEmptyDirs(root, relMigration);
   }
 
   if (Object.keys(ext.deps ?? {}).length > 0) {

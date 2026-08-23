@@ -70,9 +70,13 @@ function must(step: string, cmd: string[], cwd: string): RunResult {
 }
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".astro", "data"]);
-const BINARY_EXTENSIONS = new Set([".png", ".jpg", ".ico", ".woff", ".woff2"]);
 
-function walkFiles(dir: string, out: string[] = []): string[] {
+interface Tree {
+  files: string[];
+  dirs: string[];
+}
+
+function walkTree(dir: string, out: Tree = { files: [], dirs: [] }): Tree {
   for (const entry of readdirSync(dir).sort()) {
     const full = join(dir, entry);
     const info = lstatSync(full);
@@ -81,43 +85,61 @@ function walkFiles(dir: string, out: string[] = []): string[] {
       fail("walk", `unexpected symlink in generated output: ${full}`);
     }
     if (info.isDirectory()) {
-      if (!SKIP_DIRS.has(entry)) walkFiles(full, out);
+      if (!SKIP_DIRS.has(entry)) {
+        out.dirs.push(full);
+        walkTree(full, out);
+      }
     } else {
-      out.push(full);
+      out.files.push(full);
     }
   }
   return out;
 }
 
 // Content digest of a fixture, ignoring build/install output, to prove the
-// extension remove path restores the scaffold byte for byte. Every record is
-// length-framed so path/content repartitions cannot collide.
+// extension remove path restores the scaffold byte for byte. Directories are
+// recorded too (a leftover empty directory fails the restore), and every
+// record is length-framed so path/content repartitions cannot collide.
 function treeDigest(root: string): string {
   const hash = createHash("sha256");
-  for (const file of walkFiles(root)) {
+  const tree = walkTree(root);
+  for (const dir of tree.dirs) {
+    const rel = relative(root, dir);
+    hash.update(`D${rel.length}:${rel}|`);
+  }
+  for (const file of tree.files) {
     const rel = relative(root, file);
     const bytes = readFileSync(file);
-    hash.update(`${rel.length}:${rel}|${bytes.length}:`);
+    hash.update(`F${rel.length}:${rel}|${bytes.length}:`);
     hash.update(bytes);
   }
   return hash.digest("hex");
 }
 
+// Byte-level scan, binaries included: a repo path baked into a PNG is as
+// much of a leak as one in source.
 function assertNoLeaks(step: string, fixtureDir: string, forbidden: string[]): void {
-  for (const file of walkFiles(fixtureDir)) {
+  const needles = forbidden.map((needle) => Buffer.from(needle));
+  for (const file of walkTree(fixtureDir).files) {
     const rel = relative(fixtureDir, file);
     for (const needle of forbidden) {
       if (rel.includes(needle)) fail(step, `path "${rel}" contains "${needle}"`);
     }
-    if (BINARY_EXTENSIONS.has(file.slice(file.lastIndexOf(".")))) continue;
-    const content = readFileSync(file, "utf8");
-    for (const needle of forbidden) {
-      if (content.includes(needle)) fail(step, `${rel} contains "${needle}"`);
+    const bytes = readFileSync(file);
+    for (const needle of needles) {
+      if (bytes.includes(needle)) fail(step, `${rel} contains "${needle}"`);
     }
   }
 }
 
 function main(): void {
+  // Nothing may be written before this guard: a TMPDIR inside the checkout
+  // would let temp trees (and their node_modules) shadow the real repo.
+  const tempRoot = resolve(tmpdir());
+  if (tempRoot === REPO || tempRoot.startsWith(REPO + sep)) {
+    fail("workdir", `TMPDIR ${tempRoot} is inside the checkout; set TMPDIR elsewhere`);
+  }
+
   // 1. Pack --------------------------------------------------------------------
 
   const packDir = mkdtempSync(join(tmpdir(), "shibumi-pack-"));
@@ -136,9 +158,6 @@ function main(): void {
 
   const workDir = mkdtempSync(join(tmpdir(), "shibumi-packed-"));
   cleanupDirs.push(workDir);
-  if (workDir === REPO || workDir.startsWith(REPO + sep)) {
-    fail("workdir", `temp directory ${workDir} is inside the checkout; set TMPDIR elsewhere`);
-  }
   const toolDir = join(workDir, "tool");
   mkdirSync(toolDir);
   writeFileSync(
@@ -154,11 +173,22 @@ function main(): void {
   console.log(`Installed into ${toolDir}`);
 
   const helpProbe = must("bin-shim", [cli, "--help"], toolDir);
-  if (!helpProbe.stdout.includes("create-shibumi")) fail("bin-shim", "--help output unrecognizable");
+  if (!helpProbe.stdout.includes("create-shibumi") || !helpProbe.stdout.includes("Usage")) {
+    fail("bin-shim", "--help output unrecognizable");
+  }
+
+  // The tarball carries both clients and their locks, so a consistent tamper
+  // would self-verify; running from the checkout, pin the shipped locks to
+  // the repo's known-good copies.
+  for (const lock of ["ship.lock.json", "shibumi.lock.json"]) {
+    const shipped = readFileSync(join(packageDir, "scripts", lock));
+    const known = readFileSync(join(REPO, "scripts", lock));
+    if (!shipped.equals(known)) fail("lock-authenticity", `${lock} in the tarball differs from the checkout`);
+  }
 
   // The scaffolds must reference neither the checkout nor the installed
   // package copy, and no template placeholder name may survive.
-  const forbidden = [REPO, packageDir];
+  const forbidden = [REPO, workDir];
   for (const id of TEMPLATE_IDS) {
     const templatePkg = join(packageDir, "src", "templates", id, "package.json");
     const name = (JSON.parse(readFileSync(templatePkg, "utf8")) as { name?: string }).name;
@@ -217,14 +247,19 @@ function main(): void {
     assertNoLeaks(`placeholders:${id}`, dir, forbidden);
 
     const lockPath = join(dir, "bun.lock");
+    const hasDeps =
+      Object.keys((pkg as { dependencies?: object }).dependencies ?? {}).length > 0 ||
+      Object.keys((pkg as { devDependencies?: object }).devDependencies ?? {}).length > 0;
     if (existsSync(lockPath)) {
       const before = readFileSync(lockPath);
       must(`frozen-install:${id}`, ["bun", "install", "--frozen-lockfile"], dir);
       if (!before.equals(readFileSync(lockPath))) {
         fail(`frozen-install:${id}`, "bun install --frozen-lockfile changed bun.lock");
       }
-    } else {
-      must(`install:${id}`, ["bun", "install"], dir);
+    } else if (hasDeps) {
+      // A template with dependencies must ship its lockfile; a plain install
+      // here would silently repair the missing lock and hide the packaging bug.
+      fail(`scaffold:${id}`, "template declares dependencies but ships no bun.lock");
     }
     console.log(`scaffolded ${id}`);
     return dir;
@@ -248,6 +283,7 @@ function main(): void {
     assertNoLeaks(step, dir, forbidden);
     must(step, ["bun", "test"], dir);
     must(step, ["bun", "run", "check"], dir);
+    must(step, ["bun", "run", "build"], dir);
     for (const ext of [...extensions].reverse()) {
       must(step, [...shibumi, "remove", ext, "--yes"], dir);
     }
@@ -310,7 +346,9 @@ function main(): void {
   const sentinel = join(conflictDir, "nested", "keep.txt");
   writeFileSync(sentinel, "must survive\n");
   const existing = run([cli, "conflict-target", "--yes", "--template", "web", "--no-git", "--no-install"], fixturesDir);
-  if (existing.code === 0) fail(failStep, "scaffolding over an existing directory succeeded");
+  if (existing.code !== 1 || !existing.stderr.includes("already exists")) {
+    fail(failStep, `existing-destination scaffold: expected exit 1 naming the conflict, got ${existing.code}:\n${existing.stderr}`);
+  }
   if (readFileSync(sentinel, "utf8") !== "must survive\n") {
     fail(failStep, "existing directory contents were touched by a failed scaffold");
   }
@@ -328,12 +366,38 @@ function main(): void {
     }
     if (existsSync(join(fixturesDir, name))) fail(failStep, `${flag} still scaffolded a project`);
   }
+  const leftovers = readdirSync(fixturesDir).filter((entry) => entry.includes("shibumi-tmp"));
+  if (leftovers.length > 0) fail(failStep, `failed scaffolds left temp siblings: ${leftovers.join(", ")}`);
   console.log("failure paths ok");
 
   console.log(`\nPacked verification green.\nTarball sha256: ${digest}`);
 }
 
 const cleanupDirs: string[] = [];
+
+function cleanup(): void {
+  if (KEEP) {
+    if (cleanupDirs.length > 0) console.error(`Directories kept: ${cleanupDirs.join(", ")}`);
+    return;
+  }
+  for (const dir of cleanupDirs) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch (error) {
+      console.error(`could not remove ${dir}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+}
+
+process.on("SIGINT", () => {
+  cleanup();
+  process.exit(130);
+});
+process.on("SIGTERM", () => {
+  cleanup();
+  process.exit(143);
+});
+
 try {
   main();
   process.exitCode = 0;
@@ -341,9 +405,5 @@ try {
   console.error(error instanceof VerifyError ? `FAIL ${error.message}` : error);
   process.exitCode = 1;
 } finally {
-  if (KEEP) {
-    if (cleanupDirs.length > 0) console.error(`Directories kept: ${cleanupDirs.join(", ")}`);
-  } else {
-    for (const dir of cleanupDirs) rmSync(dir, { recursive: true, force: true });
-  }
+  cleanup();
 }
