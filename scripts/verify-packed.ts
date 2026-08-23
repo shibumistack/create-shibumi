@@ -5,11 +5,14 @@
 //
 // Steps: npm pack, record the tarball sha256, install the tarball into a
 // temp directory outside the repo, scaffold every template non-interactively
-// through the installed package, assert no placeholders or repo paths leak
-// into generated projects, run each fixture's acceptance (install, test,
-// check, build, artifacts), and run the extension add/remove cycle where the
-// template supports it. Any failure exits 1 naming the step. --keep leaves
-// the work directory behind for inspection.
+// through the installed bin shim, assert no placeholders or repo paths leak
+// into generated projects (paths and contents, re-scanned after extension
+// installs), prove the shipped lockfiles govern installs (--frozen-lockfile,
+// bytes unchanged), prove a tampered vendored client fails the scaffold-time
+// checksum, run each fixture's acceptance (install, test, check, build,
+// artifacts), extension add/remove cycles restoring the scaffold byte for
+// byte, and tarball failure paths. Any failure exits 1 naming the step;
+// temp directories are cleaned unless --keep.
 //
 // Needs network (bun install in fixtures) and the repo's Bun toolchain.
 // Container/image acceptance stays in CI; this script covers everything
@@ -22,22 +25,25 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  statSync,
+  lstatSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 
 const REPO = resolve(import.meta.dir, "..");
 const KEEP = process.argv.includes("--keep");
 const TEMPLATE_IDS = ["full-stack", "web", "static", "blog"] as const;
+type TemplateId = (typeof TEMPLATE_IDS)[number];
 
-let workDir = "";
+class VerifyError extends Error {
+  constructor(step: string, detail: string) {
+    super(`[${step}] ${detail}`);
+  }
+}
 
 function fail(step: string, detail: string): never {
-  console.error(`FAIL [${step}] ${detail}`);
-  if (workDir && KEEP) console.error(`Work directory kept: ${workDir}`);
-  process.exit(1);
+  throw new VerifyError(step, detail);
 }
 
 interface RunResult {
@@ -69,7 +75,12 @@ const BINARY_EXTENSIONS = new Set([".png", ".jpg", ".ico", ".woff", ".woff2"]);
 function walkFiles(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir).sort()) {
     const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
+    const info = lstatSync(full);
+    if (info.isSymbolicLink()) {
+      // Generated projects must not contain symlinks at all.
+      fail("walk", `unexpected symlink in generated output: ${full}`);
+    }
+    if (info.isDirectory()) {
       if (!SKIP_DIRS.has(entry)) walkFiles(full, out);
     } else {
       out.push(full);
@@ -79,183 +90,260 @@ function walkFiles(dir: string, out: string[] = []): string[] {
 }
 
 // Content digest of a fixture, ignoring build/install output, to prove the
-// extension remove path restores the scaffold byte for byte.
+// extension remove path restores the scaffold byte for byte. Every record is
+// length-framed so path/content repartitions cannot collide.
 function treeDigest(root: string): string {
   const hash = createHash("sha256");
   for (const file of walkFiles(root)) {
-    hash.update(relative(root, file));
-    hash.update(readFileSync(file));
+    const rel = relative(root, file);
+    const bytes = readFileSync(file);
+    hash.update(`${rel.length}:${rel}|${bytes.length}:`);
+    hash.update(bytes);
   }
   return hash.digest("hex");
 }
 
 function assertNoLeaks(step: string, fixtureDir: string, forbidden: string[]): void {
   for (const file of walkFiles(fixtureDir)) {
+    const rel = relative(fixtureDir, file);
+    for (const needle of forbidden) {
+      if (rel.includes(needle)) fail(step, `path "${rel}" contains "${needle}"`);
+    }
     if (BINARY_EXTENSIONS.has(file.slice(file.lastIndexOf(".")))) continue;
     const content = readFileSync(file, "utf8");
     for (const needle of forbidden) {
-      if (content.includes(needle)) {
-        fail(step, `${relative(fixtureDir, file)} contains "${needle}"`);
+      if (content.includes(needle)) fail(step, `${rel} contains "${needle}"`);
+    }
+  }
+}
+
+function main(): void {
+  // 1. Pack --------------------------------------------------------------------
+
+  const packDir = mkdtempSync(join(tmpdir(), "shibumi-pack-"));
+  cleanupDirs.push(packDir);
+  const packResult = must("pack", ["npm", "pack", "--pack-destination", packDir], REPO);
+  const tarballName = packResult.stdout.trim().split("\n").at(-1) ?? "";
+  const tarball = join(packDir, tarballName);
+  if (!tarballName.endsWith(".tgz") || !existsSync(tarball)) {
+    fail("pack", `npm pack did not produce a tarball (got "${tarballName}")`);
+  }
+  const digest = createHash("sha256").update(readFileSync(tarball)).digest("hex");
+  console.log(`Tarball: ${tarballName}`);
+  console.log(`sha256:  ${digest}`);
+
+  // 2. Install the tarball outside the repo -------------------------------------
+
+  const workDir = mkdtempSync(join(tmpdir(), "shibumi-packed-"));
+  cleanupDirs.push(workDir);
+  if (workDir === REPO || workDir.startsWith(REPO + sep)) {
+    fail("workdir", `temp directory ${workDir} is inside the checkout; set TMPDIR elsewhere`);
+  }
+  const toolDir = join(workDir, "tool");
+  mkdirSync(toolDir);
+  writeFileSync(
+    join(toolDir, "package.json"),
+    `${JSON.stringify({ name: "packed-verify", private: true }, null, 2)}\n`
+  );
+  must("install-tarball", ["bun", "add", tarball], toolDir);
+  const packageDir = join(toolDir, "node_modules", "create-shibumi");
+  // The bin shim is what `bunx create-shibumi` runs; a broken bin mapping
+  // must fail here, so nothing below calls src/cli.ts directly.
+  const cli = join(toolDir, "node_modules", ".bin", "create-shibumi");
+  if (!existsSync(cli)) fail("install-tarball", "bin shim node_modules/.bin/create-shibumi missing");
+  console.log(`Installed into ${toolDir}`);
+
+  const helpProbe = must("bin-shim", [cli, "--help"], toolDir);
+  if (!helpProbe.stdout.includes("create-shibumi")) fail("bin-shim", "--help output unrecognizable");
+
+  // The scaffolds must reference neither the checkout nor the installed
+  // package copy, and no template placeholder name may survive.
+  const forbidden = [REPO, packageDir];
+  for (const id of TEMPLATE_IDS) {
+    const templatePkg = join(packageDir, "src", "templates", id, "package.json");
+    const name = (JSON.parse(readFileSync(templatePkg, "utf8")) as { name?: string }).name;
+    if (!name) fail("placeholders", `template ${id} has no package name to check against`);
+    forbidden.push(name);
+  }
+
+  const fixturesDir = join(workDir, "fixtures");
+  mkdirSync(fixturesDir);
+
+  // 3. Tampered vendored clients must fail the scaffold-time checksum -----------
+
+  for (const client of ["ship.ts", "shibumi.ts"]) {
+    const step = `tamper:${client}`;
+    const clientPath = join(packageDir, "src", "templates", client);
+    const original = readFileSync(clientPath);
+    writeFileSync(clientPath, Buffer.concat([original, Buffer.from("\n// tampered\n")]));
+    try {
+      const result = run([cli, "tampered-app", "--yes", "--template", "full-stack", "--no-git", "--no-install"], fixturesDir);
+      if (result.code === 0) fail(step, "scaffold succeeded with a tampered vendored client");
+      if (!result.stderr.includes("checksum")) {
+        fail(step, `expected a checksum error, got:\n${result.stderr}`);
+      }
+      if (existsSync(join(fixturesDir, "tampered-app"))) {
+        fail(step, "failed scaffold left the destination behind");
+      }
+    } finally {
+      writeFileSync(clientPath, original);
+    }
+    console.log(`tamper rejected: ${client}`);
+  }
+
+  // 4. Scaffold and verify every template ----------------------------------------
+
+  function scaffold(id: TemplateId): string {
+    const name = `packed-${id}`;
+    // --no-install, then --frozen-lockfile below: the shipped lockfile must
+    // govern the install, not be silently repaired by it.
+    must(`scaffold:${id}`, [cli, name, "--yes", "--template", id, "--no-git", "--no-install"], fixturesDir);
+    const dir = join(fixturesDir, name);
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+      name?: string;
+      scripts?: Record<string, string>;
+    };
+    if (pkg.name !== name) fail(`scaffold:${id}`, `package name is "${pkg.name}", expected "${name}"`);
+    if (!existsSync(join(dir, ".gitignore")) || existsSync(join(dir, "gitignore"))) {
+      fail(`scaffold:${id}`, ".gitignore was not renamed into place");
+    }
+    if (!existsSync(join(dir, "agents.md"))) fail(`scaffold:${id}`, "agents.md missing");
+    if (pkg.scripts?.ship && !existsSync(join(dir, "scripts", "ship.ts"))) {
+      fail(`scaffold:${id}`, "ship script declared but scripts/ship.ts not vendored");
+    }
+    if (pkg.scripts?.shibumi && !existsSync(join(dir, "scripts", "shibumi.ts"))) {
+      fail(`scaffold:${id}`, "shibumi script declared but scripts/shibumi.ts not vendored");
+    }
+    assertNoLeaks(`placeholders:${id}`, dir, forbidden);
+
+    const lockPath = join(dir, "bun.lock");
+    if (existsSync(lockPath)) {
+      const before = readFileSync(lockPath);
+      must(`frozen-install:${id}`, ["bun", "install", "--frozen-lockfile"], dir);
+      if (!before.equals(readFileSync(lockPath))) {
+        fail(`frozen-install:${id}`, "bun install --frozen-lockfile changed bun.lock");
+      }
+    } else {
+      must(`install:${id}`, ["bun", "install"], dir);
+    }
+    console.log(`scaffolded ${id}`);
+    return dir;
+  }
+
+  function extensionCycle(id: string, dir: string, extensions: string[]): void {
+    const step = `extensions:${id}`;
+    const shibumi = ["bun", "run", "shibumi"];
+    const before = treeDigest(dir);
+    const listed = must(step, [...shibumi, "list"], dir).stdout;
+    for (const ext of extensions) {
+      if (!listed.includes(`${ext}  available`)) fail(step, `"${ext}" not listed as available`);
+    }
+    must(step, [...shibumi, "add", extensions[0]!, "--dry-run", "--yes"], dir);
+    if (treeDigest(dir) !== before) fail(step, "dry run changed the tree");
+    for (const ext of extensions) {
+      must(step, [...shibumi, "add", ext, "--yes"], dir);
+    }
+    // Extension content comes from the same tarball; it must be as leak-free
+    // as the scaffold.
+    assertNoLeaks(step, dir, forbidden);
+    must(step, ["bun", "test"], dir);
+    must(step, ["bun", "run", "check"], dir);
+    for (const ext of [...extensions].reverse()) {
+      must(step, [...shibumi, "remove", ext, "--yes"], dir);
+    }
+    if (treeDigest(dir) !== before) fail(step, "remove did not restore the scaffold byte for byte");
+    console.log(`extension cycle ok: ${id} (${extensions.join(", ")})`);
+  }
+
+  for (const id of TEMPLATE_IDS) {
+    const dir = scaffold(id);
+
+    if (id === "full-stack" || id === "web") {
+      must(`accept:${id}`, ["bun", "test"], dir);
+      must(`accept:${id}`, ["bun", "run", "check"], dir);
+      must(`accept:${id}`, ["bun", "run", "build"], dir);
+      if (!existsSync(join(dir, "dist", "server.js"))) {
+        fail(`accept:${id}`, "build did not produce dist/server.js");
+      }
+      extensionCycle(id, dir, id === "full-stack" ? ["auth", "email"] : ["email"]);
+    }
+
+    if (id === "static") {
+      for (const artifact of ["public/index.html", "public/404.html", "public/style.css"]) {
+        if (!existsSync(join(dir, artifact))) fail("accept:static", `${artifact} missing`);
+      }
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+        scripts: Record<string, string>;
+      };
+      if (pkg.scripts["ship:setup"] !== "bun scripts/ship.ts --setup --static --output-dir public") {
+        fail("accept:static", `unexpected ship:setup script: ${pkg.scripts["ship:setup"]}`);
+      }
+      if (pkg.scripts.shibumi) fail("accept:static", "static template must not carry the shibumi script");
+    }
+
+    if (id === "blog") {
+      must("accept:blog", ["bun", "run", "check"], dir);
+      must("accept:blog", ["bun", "run", "build"], dir);
+      for (const artifact of [
+        "dist/index.html",
+        "dist/404.html",
+        "dist/rss.xml",
+        "dist/sitemap-index.xml",
+        "dist/llms.txt",
+        "dist/robots.txt",
+        "dist/og-default.png",
+        "dist/posts/own-your-source/index.html",
+        "dist/posts/own-your-source.md",
+      ]) {
+        if (!existsSync(join(dir, artifact))) fail("accept:blog", `${artifact} missing`);
       }
     }
+
+    console.log(`acceptance ok: ${id}`);
   }
-}
 
-// 1. Pack ---------------------------------------------------------------------
+  // 5. Failure paths from the tarball ---------------------------------------------
 
-const packDir = mkdtempSync(join(tmpdir(), "shibumi-pack-"));
-const packResult = must("pack", ["npm", "pack", "--pack-destination", packDir], REPO);
-const tarballName = packResult.stdout.trim().split("\n").at(-1) ?? "";
-const tarball = join(packDir, tarballName);
-if (!tarballName.endsWith(".tgz") || !existsSync(tarball)) {
-  fail("pack", `npm pack did not produce a tarball (got "${tarballName}")`);
-}
-const digest = createHash("sha256").update(readFileSync(tarball)).digest("hex");
-console.log(`Tarball: ${tarballName}`);
-console.log(`sha256:  ${digest}`);
-
-// 2. Install the tarball outside the repo --------------------------------------
-
-workDir = mkdtempSync(join(tmpdir(), "shibumi-packed-"));
-const toolDir = join(workDir, "tool");
-mkdirSync(toolDir);
-writeFileSync(
-  join(toolDir, "package.json"),
-  `${JSON.stringify({ name: "packed-verify", private: true }, null, 2)}\n`
-);
-must("install-tarball", ["bun", "add", tarball], toolDir);
-const packageDir = join(toolDir, "node_modules", "create-shibumi");
-const cli = join(packageDir, "src", "cli.ts");
-if (!existsSync(cli)) fail("install-tarball", `installed package has no ${cli}`);
-console.log(`Installed into ${toolDir}`);
-
-// The scaffolds must reference neither the checkout nor the installed
-// package copy, and no template placeholder name may survive.
-const forbidden = [REPO, packageDir];
-for (const id of TEMPLATE_IDS) {
-  const templatePkg = join(packageDir, "src", "templates", id, "package.json");
-  const name = (JSON.parse(readFileSync(templatePkg, "utf8")) as { name?: string }).name;
-  if (!name) fail("placeholders", `template ${id} has no package name to check against`);
-  forbidden.push(name);
-}
-
-// 3. Scaffold and verify every template ----------------------------------------
-
-const fixturesDir = join(workDir, "fixtures");
-mkdirSync(fixturesDir);
-
-function scaffold(id: (typeof TEMPLATE_IDS)[number]): string {
-  const name = `packed-${id}`;
-  must(`scaffold:${id}`, ["bun", cli, name, "--yes", "--template", id, "--no-git"], fixturesDir);
-  const dir = join(fixturesDir, name);
-  const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
-    name?: string;
-    scripts?: Record<string, string>;
-  };
-  if (pkg.name !== name) fail(`scaffold:${id}`, `package name is "${pkg.name}", expected "${name}"`);
-  if (!existsSync(join(dir, ".gitignore")) || existsSync(join(dir, "gitignore"))) {
-    fail(`scaffold:${id}`, ".gitignore was not renamed into place");
+  const failStep = "failure-paths";
+  const conflictDir = join(fixturesDir, "conflict-target");
+  mkdirSync(join(conflictDir, "nested"), { recursive: true });
+  const sentinel = join(conflictDir, "nested", "keep.txt");
+  writeFileSync(sentinel, "must survive\n");
+  const existing = run([cli, "conflict-target", "--yes", "--template", "web", "--no-git", "--no-install"], fixturesDir);
+  if (existing.code === 0) fail(failStep, "scaffolding over an existing directory succeeded");
+  if (readFileSync(sentinel, "utf8") !== "must survive\n") {
+    fail(failStep, "existing directory contents were touched by a failed scaffold");
   }
-  if (!existsSync(join(dir, "agents.md"))) fail(`scaffold:${id}`, "agents.md missing");
-  if (pkg.scripts?.ship && !existsSync(join(dir, "scripts", "ship.ts"))) {
-    fail(`scaffold:${id}`, "ship script declared but scripts/ship.ts not vendored");
+  if (readdirSync(conflictDir).sort().join(",") !== "nested") {
+    fail(failStep, "failed scaffold wrote into the existing directory");
   }
-  if (pkg.scripts?.shibumi && !existsSync(join(dir, "scripts", "shibumi.ts"))) {
-    fail(`scaffold:${id}`, "shibumi script declared but scripts/shibumi.ts not vendored");
-  }
-  assertNoLeaks(`placeholders:${id}`, dir, forbidden);
-  console.log(`scaffolded ${id}`);
-  return dir;
-}
 
-function extensionCycle(id: string, dir: string, extensions: string[]): void {
-  const step = `extensions:${id}`;
-  const shibumi = ["bun", "run", "shibumi"];
-  const before = treeDigest(dir);
-  const listed = must(step, [...shibumi, "list"], dir).stdout;
-  for (const ext of extensions) {
-    if (!listed.includes(`${ext}  available`)) fail(step, `"${ext}" not listed as available`);
-  }
-  must(step, [...shibumi, "add", extensions[0]!, "--dry-run", "--yes"], dir);
-  if (treeDigest(dir) !== before) fail(step, "dry run changed the tree");
-  for (const ext of extensions) {
-    must(step, [...shibumi, "add", ext, "--yes"], dir);
-  }
-  must(step, ["bun", "test"], dir);
-  must(step, ["bun", "run", "check"], dir);
-  for (const ext of [...extensions].reverse()) {
-    must(step, [...shibumi, "remove", ext, "--yes"], dir);
-  }
-  if (treeDigest(dir) !== before) fail(step, "remove did not restore the scaffold byte for byte");
-  console.log(`extension cycle ok: ${id} (${extensions.join(", ")})`);
-}
-
-for (const id of TEMPLATE_IDS) {
-  const dir = scaffold(id);
-
-  if (id === "full-stack" || id === "web") {
-    must(`accept:${id}`, ["bun", "test"], dir);
-    must(`accept:${id}`, ["bun", "run", "check"], dir);
-    must(`accept:${id}`, ["bun", "run", "build"], dir);
-    if (!existsSync(join(dir, "dist", "server.js"))) {
-      fail(`accept:${id}`, "build did not produce dist/server.js");
+  for (const flag of ["--nope", "--spa", "--output-dir=dist", "--build-script=build"]) {
+    const name = "flag-check";
+    const result = run([cli, name, "--yes", "--template", "web", flag], fixturesDir);
+    const bare = flag.split("=")[0]!;
+    if (result.code !== 2) fail(failStep, `${flag} exited ${result.code}, expected 2`);
+    if (!result.stderr.includes(`Unknown flag: ${bare}`)) {
+      fail(failStep, `${flag} did not produce the unknown-flag error:\n${result.stderr}`);
     }
-    extensionCycle(id, dir, id === "full-stack" ? ["auth", "email"] : ["email"]);
+    if (existsSync(join(fixturesDir, name))) fail(failStep, `${flag} still scaffolded a project`);
   }
+  console.log("failure paths ok");
 
-  if (id === "static") {
-    for (const artifact of ["public/index.html", "public/404.html", "public/style.css"]) {
-      if (!existsSync(join(dir, artifact))) fail("accept:static", `${artifact} missing`);
-    }
-    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
-      scripts: Record<string, string>;
-    };
-    if (pkg.scripts["ship:setup"] !== "bun scripts/ship.ts --setup --static --output-dir public") {
-      fail("accept:static", `unexpected ship:setup script: ${pkg.scripts["ship:setup"]}`);
-    }
-    if (pkg.scripts.shibumi) fail("accept:static", "static template must not carry the shibumi script");
-  }
-
-  if (id === "blog") {
-    must("accept:blog", ["bun", "run", "check"], dir);
-    must("accept:blog", ["bun", "run", "build"], dir);
-    for (const artifact of [
-      "dist/index.html",
-      "dist/404.html",
-      "dist/rss.xml",
-      "dist/sitemap-index.xml",
-      "dist/llms.txt",
-      "dist/robots.txt",
-      "dist/og-default.png",
-      "dist/posts/own-your-source/index.html",
-      "dist/posts/own-your-source.md",
-    ]) {
-      if (!existsSync(join(dir, artifact))) fail("accept:blog", `${artifact} missing`);
-    }
-  }
-
-  console.log(`acceptance ok: ${id}`);
+  console.log(`\nPacked verification green.\nTarball sha256: ${digest}`);
 }
 
-// 4. Failure paths from the tarball ---------------------------------------------
-
-const failStep = "failure-paths";
-const conflictDir = join(fixturesDir, "conflict-target");
-mkdirSync(conflictDir);
-const existing = run(["bun", cli, "conflict-target", "--yes", "--template", "web", "--no-git"], fixturesDir);
-if (existing.code === 0) fail(failStep, "scaffolding over an existing directory succeeded");
-if (readdirSync(conflictDir).length !== 0) fail(failStep, "failed scaffold wrote into the existing directory");
-
-const unknownFlag = run(["bun", cli, "flag-check", "--yes", "--template", "web", "--nope"], fixturesDir);
-if (unknownFlag.code === 0 || existsSync(join(fixturesDir, "flag-check"))) {
-  fail(failStep, "unknown flag was not rejected cleanly");
-}
-console.log("failure paths ok");
-
-console.log(`\nPacked verification green.\nTarball sha256: ${digest}`);
-if (KEEP) {
-  console.log(`Work directory kept: ${workDir}`);
-} else {
-  rmSync(workDir, { recursive: true, force: true });
-  rmSync(packDir, { recursive: true, force: true });
+const cleanupDirs: string[] = [];
+try {
+  main();
+  process.exitCode = 0;
+} catch (error) {
+  console.error(error instanceof VerifyError ? `FAIL ${error.message}` : error);
+  process.exitCode = 1;
+} finally {
+  if (KEEP) {
+    if (cleanupDirs.length > 0) console.error(`Directories kept: ${cleanupDirs.join(", ")}`);
+  } else {
+    for (const dir of cleanupDirs) rmSync(dir, { recursive: true, force: true });
+  }
 }
