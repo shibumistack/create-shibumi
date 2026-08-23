@@ -1,19 +1,10 @@
-# my-shibumi-site
+# Shibumi static site
 
-Built with [Shibumi Stack](https://shibumistack.dev): static output.
-
-## Getting started
+Committed files in `public/`, served by a 1.4 MB pinned static image on your VPS.
 
 ```sh
-bun install
-bun run build
-bun run preview
+bun dev     # preview locally
+bun ship    # deploy
 ```
 
-Write content in `content/` as markdown. Run `bun run build` and deploy the `dist/` folder.
-
-## Stack
-
-- **Bun**: runtime, build tool
-- **Marked**: markdown to HTML
-- **gray-matter**: frontmatter parsing
+See `agents.md` for the project rules.
