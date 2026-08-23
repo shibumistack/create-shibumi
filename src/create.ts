@@ -146,9 +146,34 @@ export async function createProject(
 
     const pkgPath = join(tmp, "package.json");
     if (existsSync(pkgPath)) {
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { name?: string };
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
+        name?: string;
+        scripts?: Record<string, string>;
+      };
+      const templateName = pkg.name;
       pkg.name = opts.name;
       writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+
+      // Keep the shipped lockfile's workspace name in sync with the rename.
+      const lockPath = join(tmp, "bun.lock");
+      if (templateName && existsSync(lockPath)) {
+        const lock = readFileSync(lockPath, "utf8");
+        writeFileSync(
+          lockPath,
+          lock.replace(`"name": "${templateName}"`, `"name": "${opts.name}"`)
+        );
+      }
+
+      // Templates whose scripts use the Ship client get the vendored,
+      // checksum-locked copy; it is package-level, not per-template.
+      if (pkg.scripts?.ship) {
+        const shipSrc = join(templatesDir, "ship.ts");
+        if (!existsSync(shipSrc)) {
+          throw new CreateError(`Vendored Ship client missing at ${shipSrc}; aborting.`);
+        }
+        mkdirSync(join(tmp, "scripts"), { recursive: true });
+        cpSync(shipSrc, join(tmp, "scripts", "ship.ts"));
+      }
     }
 
     if (opts.git) {

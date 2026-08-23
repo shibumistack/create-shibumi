@@ -96,9 +96,38 @@ describe("cli", () => {
   });
 
   it("fails on unavailable templates with exit 1 and no output paths", () => {
-    const r = runCli(["my-app", "--yes", "--template", "web", "--no-install", "--no-git"]);
+    const r = runCli(["my-app", "--yes", "--template", "full-stack", "--no-install", "--no-git"]);
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain('Template "web" is not available in this build.');
+    expect(r.stderr).toContain('Template "full-stack" is not available in this build.');
     expect(existsSync(join(work, "my-app"))).toBe(false);
+  });
+
+  it("scaffolds the web template with the byte-locked ship client", () => {
+    const r = runCli(["web-app", "--yes", "--template", "web", "--no-install"]);
+    expect(r.code).toBe(0);
+    const dest = join(work, "web-app");
+    for (const file of [
+      "agents.md",
+      "package.json",
+      "tsconfig.json",
+      "Dockerfile",
+      "compose.yaml",
+      ".dockerignore",
+      ".gitignore",
+      "scripts/ship.ts",
+      "src/app.ts",
+      "src/server.ts",
+      "src/env.ts",
+      "public/app.js",
+      "test/app.test.ts",
+    ]) {
+      expect(existsSync(join(dest, file))).toBe(true);
+    }
+    const vendored = readFileSync(new URL("../src/templates/ship.ts", import.meta.url), "utf8");
+    expect(readFileSync(join(dest, "scripts", "ship.ts"), "utf8")).toBe(vendored);
+    const pkg = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
+    expect(pkg.name).toBe("web-app");
+    expect(pkg.scripts["ship:status"]).toBe("bun scripts/ship.ts --status");
+    expect(pkg.scripts.check).toBe("tsc --noEmit");
   });
 });

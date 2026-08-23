@@ -81,6 +81,36 @@ describe("createProject", () => {
     expect(readFileSync(join(dest, ".gitignore"), "utf8")).toContain("node_modules");
   });
 
+  it("vendors the locked ship client into templates that use it", async () => {
+    mkdirSync(join(templatesDir, "web"), { recursive: true });
+    writeFileSync(
+      join(templatesDir, "web", "package.json"),
+      `${JSON.stringify({ name: "placeholder", scripts: { ship: "bun scripts/ship.ts" } }, null, 2)}\n`
+    );
+    writeFileSync(join(templatesDir, "ship.ts"), "// vendored ship fixture\n");
+    const { dest } = await createProject(opts({ template: "web" as const }), okRun);
+    expect(readFileSync(join(dest, "scripts", "ship.ts"), "utf8")).toBe(
+      "// vendored ship fixture\n"
+    );
+  });
+
+  it("aborts when a ship-using template lacks the vendored client", async () => {
+    mkdirSync(join(templatesDir, "web"), { recursive: true });
+    writeFileSync(
+      join(templatesDir, "web", "package.json"),
+      `${JSON.stringify({ name: "placeholder", scripts: { ship: "bun scripts/ship.ts" } }, null, 2)}\n`
+    );
+    let error: unknown;
+    try {
+      await createProject(opts({ template: "web" as const }), okRun);
+    } catch (err) {
+      error = err;
+    }
+    expect((error as CreateError).message).toContain("Vendored Ship client missing");
+    expect(existsSync(join(work, "my-app"))).toBe(false);
+    expect(noTmpLeftovers()).toBe(true);
+  });
+
   it("rejects invalid names at the mutation boundary", async () => {
     let error: unknown;
     try {
