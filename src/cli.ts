@@ -36,13 +36,6 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (args.outputDir !== undefined || args.buildScript !== undefined || args.spa) {
-    process.stderr.write(
-      `--output-dir, --build-script, and --spa are not implemented yet; the static template scaffolds its default layout for now.\n`
-    );
-    process.exit(2);
-  }
-
   const interactive = !args.yes;
   if (interactive && !process.stdin.isTTY) {
     process.stderr.write(

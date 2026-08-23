@@ -62,10 +62,10 @@ describe("cli", () => {
     );
   });
 
-  it("rejects unimplemented static options with exit 2", () => {
+  it("rejects the dropped static-answer flags with exit 2", () => {
     const r = runCli(["my-app", "--yes", "--template", "static", "--spa"]);
     expect(r.code).toBe(2);
-    expect(r.stderr).toContain("not implemented yet");
+    expect(r.stderr).toContain("Unknown flag: --spa");
   });
 
   it("refuses interactive mode without a TTY with exit 2", () => {

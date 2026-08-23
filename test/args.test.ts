@@ -78,36 +78,15 @@ describe("parseArgs", () => {
     expect(ok(["my-app", "--yes", "--template", "static"]).yes).toBe(true);
   });
 
-  it("restricts static-only flags to the static template", () => {
-    expect(err(["x", "--template", "web", "--spa"])).toBe(
-      "--spa only applies to the static template."
+  it("rejects the dropped static-answer flags as unknown", () => {
+    // ship:setup owns output dir, build script, and SPA choices now
+    // (owner decision, ws7); the create surface must not half-support them.
+    expect(err(["x", "--template", "static", "--spa"])).toBe("Unknown flag: --spa");
+    expect(err(["x", "--template", "static", "--output-dir", "dist"])).toBe(
+      "Unknown flag: --output-dir"
     );
-    expect(err(["x", "--template", "web", "--output-dir", "dist"])).toBe(
-      "--output-dir only applies to the static template."
-    );
-    const a = ok(["x", "--template", "static", "--output-dir", "dist", "--spa"]);
-    expect(a.outputDir).toBe("dist");
-    expect(a.spa).toBe(true);
-  });
-
-  it("validates output directories", () => {
-    expect(err(["x", "--template", "static", "--output-dir", "/abs"])).toContain(
-      "must be a relative path"
-    );
-    expect(err(["x", "--template", "static", "--output-dir", "../up"])).toContain(
-      'must not contain ".."'
-    );
-    expect(ok(["x", "--template", "static", "--output-dir", "build/out"]).outputDir).toBe(
-      "build/out"
-    );
-  });
-
-  it("validates build script names", () => {
-    expect(err(["x", "--template", "static", "--build-script", "rm -rf /"])).toContain(
-      "must be a package script name"
-    );
-    expect(ok(["x", "--template", "static", "--build-script", "build:site"]).buildScript).toBe(
-      "build:site"
+    expect(err(["x", "--template", "static", "--build-script", "build"])).toBe(
+      "Unknown flag: --build-script"
     );
   });
 });

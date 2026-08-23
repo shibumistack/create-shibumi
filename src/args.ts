@@ -7,11 +7,8 @@ export interface ParsedArgs {
   yes: boolean;
   git: boolean;
   install: boolean;
-  spa: boolean;
   name?: string;
   template?: TemplateId;
-  outputDir?: string;
-  buildScript?: string;
 }
 
 export type ParseResult =
@@ -20,9 +17,8 @@ export type ParseResult =
 
 // Lowercase npm-style project names only; also the directory name.
 export const NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
-const BUILD_SCRIPT_PATTERN = /^[A-Za-z0-9:_-]+$/;
 
-const VALUE_FLAGS = new Set(["--template", "--output-dir", "--build-script"]);
+const VALUE_FLAGS = new Set(["--template"]);
 const BOOLEAN_FLAGS = new Set([
   "--help",
   "-h",
@@ -31,7 +27,6 @@ const BOOLEAN_FLAGS = new Set([
   "-y",
   "--no-git",
   "--no-install",
-  "--spa",
 ]);
 
 export function validateName(name: string): string | null {
@@ -44,18 +39,6 @@ export function validateName(name: string): string | null {
   return null;
 }
 
-export function validateOutputDir(dir: string): string | null {
-  if (dir.length === 0) return `--output-dir requires a value.`;
-  if (dir.startsWith("/") || dir.startsWith("\\") || /^[A-Za-z]:/.test(dir)) {
-    return `--output-dir must be a relative path inside the project, got "${dir}".`;
-  }
-  const segments = dir.split(/[\\/]/);
-  if (segments.some((s) => s === ".." || s === "")) {
-    return `--output-dir must not contain ".." or empty segments, got "${dir}".`;
-  }
-  return null;
-}
-
 export function parseArgs(argv: string[]): ParseResult {
   const args: ParsedArgs = {
     help: false,
@@ -63,7 +46,6 @@ export function parseArgs(argv: string[]): ParseResult {
     yes: false,
     git: true,
     install: true,
-    spa: false,
   };
   const positionals: string[] = [];
 
@@ -101,18 +83,6 @@ export function parseArgs(argv: string[]): ParseResult {
           };
         }
         args.template = value as TemplateId;
-      } else if (flag === "--output-dir") {
-        const err = validateOutputDir(value);
-        if (err) return { ok: false, error: err };
-        args.outputDir = value;
-      } else if (flag === "--build-script") {
-        if (!BUILD_SCRIPT_PATTERN.test(value)) {
-          return {
-            ok: false,
-            error: `--build-script must be a package script name, got "${value}".`,
-          };
-        }
-        args.buildScript = value;
       }
       continue;
     }
@@ -126,7 +96,6 @@ export function parseArgs(argv: string[]): ParseResult {
       else if (flag === "--yes" || flag === "-y") args.yes = true;
       else if (flag === "--no-git") args.git = false;
       else if (flag === "--no-install") args.install = false;
-      else if (flag === "--spa") args.spa = true;
       continue;
     }
 
@@ -147,20 +116,6 @@ export function parseArgs(argv: string[]): ParseResult {
     const err = validateName(positionals[0]!);
     if (err) return { ok: false, error: err };
     args.name = positionals[0]!;
-  }
-
-  const staticOnly: Array<[string, unknown]> = [
-    ["--output-dir", args.outputDir],
-    ["--build-script", args.buildScript],
-    ["--spa", args.spa || undefined],
-  ];
-  for (const [flag, value] of staticOnly) {
-    if (value !== undefined && args.template !== undefined && args.template !== "static") {
-      return {
-        ok: false,
-        error: `${flag} only applies to the static template.`,
-      };
-    }
   }
 
   if (args.yes) {
@@ -186,9 +141,6 @@ Flags
   --yes, -y             non-interactive; requires name and --template
   --no-git              skip git init
   --no-install          skip dependency install
-  --output-dir <dir>    static only: relative build output directory
-  --build-script <name> static only: package script that produces the output
-  --spa                 static only: enable SPA fallback routing
   --help, -h            show this help
   --version             show version
 

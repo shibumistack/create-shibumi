@@ -129,3 +129,5 @@ jobs:
           test -f dist/posts/own-your-source.md
           grep -q 'og:image' dist/posts/own-your-source/index.html
           grep -q 'text/markdown' dist/posts/own-your-source/index.html
+      - name: packed verification (tarball install, all templates, extension cycles)
+        run: bun run verify:packed
