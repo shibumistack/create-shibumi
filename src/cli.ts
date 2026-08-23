@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { cancel, confirm, intro, isCancel, outro, select, spinner, text } from "@clack/prompts";
+import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { HELP_TEXT, parseArgs, validateName, type TemplateId } from "./args";
@@ -91,6 +91,9 @@ async function main(): Promise<void> {
     });
     if (isCancel(answer)) exitCancelled();
     template = answer as TemplateId;
+    if (template === "static") {
+      log.info("Using a generator? Point bun ship:setup at its output directory later.");
+    }
   }
 
   let deployNow = false;
@@ -125,6 +128,15 @@ async function main(): Promise<void> {
     );
     dest = result.dest;
     s.stop(`Created ${name}`);
+    // Receipt: the finished transcript documents what actually happened.
+    log.success("Template copied");
+    if (args.git) log.success("Git initialized; nothing committed, the first commit is yours");
+    else log.info("Git skipped; run git init when you want history");
+    if (args.install) log.success("Dependencies installed");
+    else log.info("Install skipped; run bun install inside the project");
+    if (existsSync(join(result.dest, "scripts", "ship.ts"))) {
+      log.success("Ship client vendored (scripts/ship.ts)");
+    }
   } catch (err) {
     if (err instanceof CreateError) {
       s.stop("Failed");
@@ -161,7 +173,19 @@ async function main(): Promise<void> {
     }
   }
 
-  outro(`cd ${name} && bun dev`);
+  note(
+    [
+      `cd ${name}`,
+      "bun dev           start the dev server (ctrl+c stops it)",
+      deployNow
+        ? "bun ship          deploy your first commit"
+        : "bun ship:setup    connect your VPS when you're ready",
+      "",
+      "agents.md tells your coding agent the house rules.",
+    ].join("\n"),
+    "next"
+  );
+  outro("Docs: https://shibumistack.dev/docs");
 }
 
 main().catch((err: unknown) => {

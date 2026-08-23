@@ -68,7 +68,7 @@ const page = `<!doctype html>
   <body>
     <main>
       <h1>It runs.</h1>
-      <p>Hono routes, Zod validation, Alpine behavior. All of it is yours to edit.</p>
+      <p>Hono routes, Zod validation, Alpine behavior. To get started, open <code>src/app.ts</code>; this page lives there.</p>
       <section x-data="counter">
         <button x-on:click="inc" type="button">Count</button>
         <output x-text="count"></output>

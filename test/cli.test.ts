@@ -84,7 +84,11 @@ describe("cli", () => {
     expect(existsSync(join(dest, ".git"))).toBe(true);
     const log = Bun.spawnSync(["git", "log", "--oneline"], { cwd: dest });
     expect(log.exitCode).not.toBe(0);
-    expect(r.stdout).toContain("cd my-app && bun dev");
+    expect(r.stdout).toContain("cd my-app");
+    expect(r.stdout).toContain("bun dev");
+    expect(r.stdout).toContain("agents.md tells your coding agent the house rules.");
+    expect(r.stdout).toContain("Git initialized; nothing committed");
+    expect(r.stdout).toContain("Install skipped");
   });
 
   it("fails on an existing destination with exit 1 and leaves it untouched", () => {
