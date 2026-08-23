@@ -18,6 +18,7 @@ import {
   createUser,
   deliverLoginLink,
   destroySession,
+  nodeEnv,
   normalizeEmail,
   rateLimit,
   sessionUser,
@@ -189,7 +190,7 @@ authRoutes.post("/login-link", async (c) => {
     // (including unset) requires APP_ORIGIN, and it must be https so tokens
     // never ride plaintext.
     const env = loadEnv();
-    const isDevelopment = process.env.NODE_ENV === "development";
+    const isDevelopment = nodeEnv() === "development";
     const base = env.APP_ORIGIN ?? (isDevelopment ? new URL(c.req.url).origin : null);
     try {
       if (!base) {

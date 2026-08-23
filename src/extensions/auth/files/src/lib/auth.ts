@@ -161,11 +161,18 @@ export async function consumeLoginToken(token: string): Promise<AuthUser | null>
 // with a sendEmail call; agents/auth.md has the exact snippet. Until then,
 // development logs the link and production refuses instead of silently
 // swallowing logins.
+// Bracket access, not process.env.NODE_ENV: `bun build` statically inlines
+// the dot form at build time (defaulting to "development"), which would defeat
+// the runtime production check baked into the container. Bracket access is
+// read at runtime.
+export function nodeEnv(): string | undefined {
+  return process.env["NODE_ENV"];
+}
+
 export async function deliverLoginLink(email: string, url: string): Promise<void> {
-  // Deliberate direct env read: NODE_ENV selects behavior, it is not app
-  // config. Fail-closed: only explicit development logs the link; any other
-  // value (including unset) refuses rather than printing tokens to output.
-  if (process.env.NODE_ENV !== "development") {
+  // Fail-closed: only explicit development logs the link; any other value
+  // (including unset) refuses rather than printing tokens to output.
+  if (nodeEnv() !== "development") {
     throw new Error(
       "Login-link delivery is not wired. Install the email extension (bun run shibumi add email) and connect it in src/lib/auth.ts (see agents/auth.md)."
     );
