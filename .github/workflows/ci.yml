@@ -99,11 +99,16 @@ jobs:
           bun run build
           docker build -t fixture-data .
           docker volume create fsvol
-          docker run -d --rm --name fs1 -v fsvol:/data -p 127.0.0.1:39133:3000 fixture-data
+          docker run -d --rm --name fs1 -v fsvol:/data -p 127.0.0.1:39133:3000 -e APP_ORIGIN=https://ci.example fixture-data
           sleep 3
+          test "$(docker exec fs1 printenv NODE_ENV)" = "production"
           wget -q -T 5 -O - http://127.0.0.1:39133/api/notes | grep -q 'It persists.'
           # auth works inside the container (migration applied at boot)
           wget -q -T 5 -O - --header 'content-type: application/json' --post-data '{"email":"ci@example.com","password":"password123"}' http://127.0.0.1:39133/auth/register | grep -q 'ci@example.com'
+          # regression guard: bun build must not inline NODE_ENV, so a
+          # production container never logs the login-link token
+          wget -q -T 5 -O - --header 'content-type: application/json' --post-data '{"email":"ci@example.com"}' http://127.0.0.1:39133/auth/login-link | grep -q 'on its way'
+          if docker logs fs1 2>&1 | grep -q 'Login link for'; then echo 'login-link token leaked to logs in production'; exit 1; fi
           docker exec fs1 bun -e 'import { Database } from "bun:sqlite"; new Database("/data/app.db").query("INSERT INTO notes (title) VALUES (?)").run("survives");'
           docker rm -f fs1
           docker run -d --rm --name fs2 -v fsvol:/data -p 127.0.0.1:39133:3000 fixture-data
