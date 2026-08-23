@@ -9,6 +9,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -197,19 +198,20 @@ describe("add auth", () => {
     expect(run.err).toContain("bun create shibumi@latest my-app");
   });
 
-  it("stops on conflicting files unless --force", async () => {
+  it("always stops on conflicting files, --force included", async () => {
     const root = fixture("full-stack");
     const conflictPath = join(root, "src", "db", "schema-auth.ts");
     writeFileSync(conflictPath, "// user file\n");
     const digest = treeDigest(root);
     const refused = await cli(root, ["add", "auth", "--yes"]);
     expect(refused.code).toBe(1);
-    expect(refused.err).toContain("--force");
+    expect(refused.err).toContain("Move them aside");
     expect(treeDigest(root)).toBe(digest);
 
-    const forced = await cli(root, ["add", "auth", "--yes", "--force"]);
-    expect(forced.code).toBe(0);
-    expect(readFileSync(conflictPath, "utf8")).not.toBe("// user file\n");
+    const forcedRefusal = await cli(root, ["add", "auth", "--yes", "--force"]);
+    expect(forcedRefusal.code).toBe(1);
+    expect(readFileSync(conflictPath, "utf8")).toBe("// user file\n");
+    expect(treeDigest(root)).toBe(digest);
   });
 
   it("stops when hook anchor text changed, writing nothing", async () => {
@@ -305,6 +307,31 @@ describe("list and safety", () => {
     const root = fixture("full-stack");
     expect((await cli(root, ["add", "nope", "--yes"])).code).toBe(2);
     expect((await cli(root, ["add", "auth", "--nope"])).code).toBe(2);
+  });
+
+  it("refuses writes through symlinked path components", async () => {
+    const root = fixture("full-stack");
+    const outside = join(work, "outside-target");
+    cpSync(join(root, "src", "db"), outside, { recursive: true });
+    rmSync(join(root, "src", "db"), { recursive: true, force: true });
+    symlinkSync(outside, join(root, "src", "db"));
+    const run = await cli(root, ["add", "auth", "--yes"]);
+    expect(run.code).toBe(1);
+    expect(existsSync(join(outside, "schema-auth.ts"))).toBe(false);
+  });
+
+  it("keeps a same-named migration whose content differs, on removal", async () => {
+    const root = fixture("full-stack");
+    const userMigration = join(root, "src", "db", "migrations", "0002_auth.sql");
+    writeFileSync(userMigration, "CREATE TABLE my_own_auth (id INTEGER);\n");
+    expect((await cli(root, ["add", "auth", "--yes"])).code).toBe(0);
+    expect(existsSync(join(root, "src", "db", "migrations", "0003_auth.sql"))).toBe(true);
+
+    const removal = await cli(root, ["remove", "auth", "--yes"]);
+    expect(removal.code).toBe(0);
+    expect(removal.out).toContain("content differs");
+    expect(readFileSync(userMigration, "utf8")).toBe("CREATE TABLE my_own_auth (id INTEGER);\n");
+    expect(existsSync(join(root, "src", "db", "migrations", "0003_auth.sql"))).toBe(false);
   });
 
   it("refuses bundle paths that escape the project root", () => {

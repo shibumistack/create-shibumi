@@ -260,4 +260,13 @@ describe("rate limiter", () => {
     expect(rateLimit("test:key", 3, 1000, start + 3)).toBe(false);
     expect(rateLimit("test:key", 3, 1000, start + 1001)).toBe(true);
   });
+
+  it("stays bounded under attacker-minted keys", () => {
+    const start = 2_000_000;
+    // Well past the 10,000-window cap; must neither throw nor block fresh keys.
+    for (let i = 0; i < 10_500; i++) {
+      expect(rateLimit(`flood:${i}`, 3, 60_000, start + i)).toBe(true);
+    }
+    expect(rateLimit("flood:final", 3, 60_000, start + 11_000)).toBe(true);
+  });
 });

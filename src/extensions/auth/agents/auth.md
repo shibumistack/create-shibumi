@@ -30,6 +30,10 @@ import { requireAuth } from "./lib/auth";
 app.use("/account/*", requireAuth);
 ```
 
+## Environment
+
+- `APP_ORIGIN` (validated in `src/env.ts`): canonical origin for login links, e.g. `https://app.example.com`. Required in production; without it login-link delivery is refused (uniform response, error logged) so a poisoned Host header can never redirect tokens. Development falls back to the request origin.
+
 ## Honeypot
 
 `register`, `login`, and `login-link` accept an optional decoy field named `website`. Real clients omit it (or send it empty); render it in HTML forms as a visually hidden input. A non-empty value marks the request as a bot: the response stays plausible (fake 201, uniform 401, uniform 200) while no account, session, or token is created.
@@ -37,8 +41,13 @@ app.use("/account/*", requireAuth);
 ## CSRF and rate limiting
 
 - `hono/csrf` runs on every `/auth` mutation (Origin check on form-shaped posts); cross-origin JSON is stopped by the browser preflight.
-- The rate limiter is in-memory and per-process. That matches the single-container deployment; counts reset on restart. Replace it before scaling to multiple processes.
+- The rate limiter is in-memory and per-process, bounded at 10,000 tracked windows (oldest evicted beyond that). That matches the single-container deployment; counts reset on restart. Replace it before scaling to multiple processes.
 - Rate keys use `x-forwarded-for`, which is only trustworthy behind the deployment proxy. Directly exposed apps share one bucket.
+
+## Accepted tradeoffs
+
+- Registration returns 409 for a taken email (standard enumeration tradeoff; registration reveals existence by nature). The login and login-link flows stay uniform.
+- `GET /auth/verify` changes state (sets the session); that is inherent to email login links. Tokens are single-use, 15-minute, and sha256-hashed at rest.
 
 ## Wiring login-link delivery
 

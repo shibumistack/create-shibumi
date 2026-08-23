@@ -84,6 +84,9 @@ function dummyHash(): Promise<string> {
   dummyHashPromise ??= Bun.password.hash(crypto.randomUUID());
   return dummyHashPromise;
 }
+// Warm it at import so the first unknown-email login is not measurably
+// slower than a known-email one.
+void dummyHash();
 
 export async function verifyLogin(email: string, password: string): Promise<AuthUser | null> {
   const row = await getUserByEmail(email);
@@ -176,21 +179,32 @@ interface RateWindow {
 }
 
 const rateWindows = new Map<string, RateWindow>();
+// Hard bound on tracked windows so attacker-minted keys (fresh IPs or
+// emails) cannot grow memory without limit. At the cap, expired windows are
+// pruned and, if every window is still live, the oldest are evicted; an
+// attacker filling the map can reset other buckets, but the memory bound
+// wins over that marginal rate-limit weakening.
+const RATE_MAP_CAP = 10_000;
 
 // Returns true while the caller stays within `limit` hits per `windowMs`.
 export function rateLimit(key: string, limit: number, windowMs: number, now = Date.now()): boolean {
-  if (rateWindows.size > 10_000) {
-    for (const [staleKey, window] of rateWindows) {
-      if (now - window.start >= windowMs) rateWindows.delete(staleKey);
+  const window = rateWindows.get(key);
+  if (window && now - window.start < windowMs) {
+    window.count += 1;
+    return window.count <= limit;
+  }
+  if (!window && rateWindows.size >= RATE_MAP_CAP) {
+    for (const [staleKey, stale] of rateWindows) {
+      if (now - stale.start >= windowMs) rateWindows.delete(staleKey);
+    }
+    while (rateWindows.size >= RATE_MAP_CAP) {
+      const oldest = rateWindows.keys().next().value;
+      if (oldest === undefined) break;
+      rateWindows.delete(oldest);
     }
   }
-  const window = rateWindows.get(key);
-  if (!window || now - window.start >= windowMs) {
-    rateWindows.set(key, { start: now, count: 1 });
-    return true;
-  }
-  window.count += 1;
-  return window.count <= limit;
+  rateWindows.set(key, { start: now, count: 1 });
+  return true;
 }
 
 // Middleware -------------------------------------------------------------------

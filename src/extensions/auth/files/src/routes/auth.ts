@@ -8,6 +8,7 @@ import type { Context } from "hono";
 import { csrf } from "hono/csrf";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
+import { loadEnv } from "../env";
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_S,
@@ -108,9 +109,13 @@ authRoutes.post("/register", async (c) => {
     const user = await createUser(parsed.data.email, parsed.data.password);
     setSessionCookie(c, await createSession(user.id));
     return c.json({ user }, 201);
-  } catch {
-    // UNIQUE constraint on email; the only failing insert path here.
-    return c.json({ error: "Email is already registered." }, 409);
+  } catch (error) {
+    // Only the duplicate-email case maps to 409; anything else (hashing,
+    // database, session failure) surfaces as the generic 500.
+    if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) {
+      return c.json({ error: "Email is already registered." }, 409);
+    }
+    throw error;
   }
 });
 
@@ -139,8 +144,18 @@ authRoutes.post("/login-link", async (c) => {
   // skip token creation and delivery.
   const token = honeypotTripped(body) ? null : await createLoginToken(parsed.data.email);
   if (token) {
-    const url = new URL(`/auth/verify?token=${token}`, c.req.url).toString();
+    // Links are built from APP_ORIGIN, never from the Host header, so a
+    // poisoned Host cannot redirect tokens in production. Development falls
+    // back to the request origin for convenience.
+    const env = loadEnv();
+    const base =
+      env.APP_ORIGIN ??
+      (process.env.NODE_ENV === "production" ? null : new URL(c.req.url).origin);
     try {
+      if (!base) {
+        throw new Error("APP_ORIGIN is not set; refusing to build login links from the Host header in production.");
+      }
+      const url = new URL(`/auth/verify?token=${token}`, base).toString();
       await deliverLoginLink(normalizeEmail(parsed.data.email), url);
     } catch (error) {
       // Delivery failure must not change the response, or it would reveal

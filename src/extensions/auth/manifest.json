@@ -3,8 +3,13 @@
   "title": "Auth",
   "description": "Cookie sessions with password and login-link sign-in, CSRF protection, and rate limiting",
   "requires": "database",
-  "env": [],
+  "env": ["APP_ORIGIN"],
   "hooks": [
+    {
+      "file": "src/env.ts",
+      "find": "  DB_PATH: z.string().min(1).default(\"data/app.db\"),",
+      "insert": "  // Auth extension (shibumi add auth): canonical origin for login links,\n  // e.g. https://app.example.com. Required in production; development\n  // falls back to the request origin.\n  APP_ORIGIN: z.url().optional(),"
+    },
     {
       "file": "src/app.ts",
       "find": "import { Hono } from \"hono\";",

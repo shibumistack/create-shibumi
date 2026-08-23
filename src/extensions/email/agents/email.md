@@ -50,6 +50,8 @@ app.post("/webhooks/resend", async (c) => {
 });
 ```
 
+Signature verification does not stop replays inside the 5-minute tolerance window: if a webhook triggers side effects, record processed `svix-id` values and skip duplicates.
+
 ## Removal
 
 `bun run shibumi remove email` deletes the installed code and reverses the `src/env.ts` edit. No tables are involved.

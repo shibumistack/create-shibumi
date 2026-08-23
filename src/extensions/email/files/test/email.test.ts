@@ -79,6 +79,10 @@ describe("renderTemplate", () => {
     expect(() => renderTemplate("Hi {{name}}", {})).toThrow('Missing template variable "name"');
   });
 
+  it("throws on placeholder names that would silently pass through", () => {
+    expect(() => renderTemplate("Hi {{first-name}}", { name: "x" })).toThrow("Invalid template placeholder");
+  });
+
   it("escapes all HTML-significant characters", () => {
     expect(escapeHtml(`&<>"'`)).toBe("&amp;&lt;&gt;&quot;&#39;");
   });

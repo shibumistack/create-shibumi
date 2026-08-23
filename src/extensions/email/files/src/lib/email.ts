@@ -73,8 +73,14 @@ export function escapeHtml(value: string): string {
 }
 
 // Fills {{name}} placeholders, HTML-escaping every value. Throws on a
-// placeholder without a value so typos fail in tests, not in inboxes.
+// placeholder without a value, and on placeholder names outside \w+ (they
+// would pass through silently), so typos fail in tests, not in inboxes.
 export function renderTemplate(template: string, vars: Record<string, string | number>): string {
+  for (const match of template.matchAll(/\{\{([^{}]*)\}\}/g)) {
+    if (!/^\w+$/.test(match[1] ?? "")) {
+      throw new Error(`Invalid template placeholder ${match[0]}; names must match \\w+.`);
+    }
+  }
   return template.replaceAll(/\{\{(\w+)\}\}/g, (_whole, name: string) => {
     const value = vars[name];
     if (value === undefined) {
