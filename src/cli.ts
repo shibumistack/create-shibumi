@@ -70,12 +70,23 @@ async function main(): Promise<void> {
   if (args.template) {
     template = args.template;
   } else {
+    const dim = (value: string) => `\x1b[2m${value}\x1b[22m`;
+    const detail = (value: string) => `\n    ${dim(value)}`;
     const answer = await select({
       message: "What are you shipping?",
       options: [
-        { value: "static" as TemplateId, label: "Static output: any framework, prebuilt files" },
-        { value: "web" as TemplateId, label: "Bun web app: Hono, Alpine, Zod" },
-        { value: "full-stack" as TemplateId, label: "Bun full-stack app: adds Drizzle and SQLite" },
+        {
+          value: "full-stack" as TemplateId,
+          label: `Bun full-stack app ${dim("(recommended)")}${detail("Hono, Alpine, and SQLite with migrations and backups")}`,
+        },
+        {
+          value: "web" as TemplateId,
+          label: `Bun web app${detail("Hono, Alpine, and Zod; no database")}`,
+        },
+        {
+          value: "static" as TemplateId,
+          label: `Static site${detail("Any framework's build output: dist/, public/, _site/, or plain files")}`,
+        },
       ],
     });
     if (isCancel(answer)) exitCancelled();
