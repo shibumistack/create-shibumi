@@ -12,6 +12,7 @@
     "src/args.ts",
     "src/create.ts",
     "src/templates/ship.ts",
+    "scripts/ship.lock.json",
     "src/templates/static/",
     "src/templates/blog/",
     "src/templates/full-stack/",
@@ -48,7 +49,7 @@
     "@clack/prompts": "1.7.0"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@types/bun": "1.4.0",
     "typescript": "5.9.2"
   },
   "engines": {

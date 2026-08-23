@@ -18,8 +18,11 @@ jobs:
       - run: bun run check
       - name: forbid shell-string exec in shipped surface
         run: |
-          if grep -rn "execSync\|spawnSync(\"\|spawn(\"" src/; then
-            echo "shell-string exec found in src/"; exit 1
+          if grep -rn "execSync\|spawnSync(\"\|spawn(\"" src/ scripts/; then
+            echo "shell-string exec found in src/ or scripts/"; exit 1
+          fi
+          if find src -type l | grep .; then
+            echo "symlinks found in src/"; exit 1
           fi
       - name: assert packed tarball matches allowlist and required manifest
         run: |
@@ -27,11 +30,13 @@ jobs:
           node -e '
             const files = require("/tmp/pack.json")[0].files.map(f => f.path);
             const bad = files.filter(p =>
-              !/^(LICENSE|README\.md|package\.json|src\/(cli|args|create)\.ts|src\/templates\/ship\.ts|src\/templates\/(static|web|full-stack|blog)\/)/.test(p));
+              !/^(LICENSE$|README\.md$|package\.json$|scripts\/ship\.lock\.json$|src\/(cli|args|create)\.ts$|src\/templates\/ship\.ts$|src\/templates\/(static|web|full-stack|blog)\/)/.test(p)
+              || /(^|\/)(\.env|id_rsa|.*\.(pem|key|p12))$/.test(p));
             if (bad.length) { console.error("unexpected packed files:", bad); process.exit(1); }
             const required = [
               "src/cli.ts", "src/args.ts", "src/create.ts",
               "src/templates/ship.ts",
+              "scripts/ship.lock.json",
               "src/templates/static/gitignore",
               "src/templates/web/gitignore",
               "src/templates/web/.dockerignore",

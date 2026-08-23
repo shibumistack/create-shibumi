@@ -44,7 +44,9 @@ const activeChildren = new Set<ReturnType<typeof Bun.spawn>>();
 function killActiveChildren(): void {
   for (const child of activeChildren) {
     try {
-      child.kill();
+      // SIGKILL: the signal handler cannot await child exit, so the child
+      // must die immediately or it could recreate temp contents mid-removal.
+      child.kill("SIGKILL");
     } catch {
       // Child already gone.
     }
@@ -165,11 +167,25 @@ export async function createProject(
       }
 
       // Templates whose scripts use the Ship client get the vendored,
-      // checksum-locked copy; it is package-level, not per-template.
+      // checksum-locked copy; it is package-level, not per-template. The
+      // lock ships in the tarball and is verified here at scaffold time, so
+      // a substituted ship.ts in a tampered artifact fails loudly.
       if (pkg.scripts?.ship) {
         const shipSrc = join(templatesDir, "ship.ts");
+        const lockPath = join(templatesDir, "..", "..", "scripts", "ship.lock.json");
         if (!existsSync(shipSrc)) {
           throw new CreateError(`Vendored Ship client missing at ${shipSrc}; aborting.`);
+        }
+        if (opts.templatesDir === undefined) {
+          const lock = JSON.parse(readFileSync(lockPath, "utf8")) as { sha256: string };
+          const digest = new Bun.CryptoHasher("sha256")
+            .update(await Bun.file(shipSrc).arrayBuffer())
+            .digest("hex");
+          if (digest !== lock.sha256) {
+            throw new CreateError(
+              `Vendored Ship client does not match its checksum lock; the package may be corrupt. Reinstall create-shibumi.`
+            );
+          }
         }
         mkdirSync(join(tmp, "scripts"), { recursive: true });
         cpSync(shipSrc, join(tmp, "scripts", "ship.ts"));
