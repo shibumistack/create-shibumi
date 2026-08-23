@@ -110,7 +110,13 @@ describe("register and login", () => {
       website: "https://spam.example",
     });
     expect(trapped.status).toBe(201);
-    expect(trapped.headers.get("set-cookie")).toBeNull();
+    // A decoy cookie is set so the response is indistinguishable, but it
+    // maps to no session.
+    const decoy = (trapped.headers.get("set-cookie") ?? "").match(/session=([^;]+)/)![1]!;
+    const decoyMe = await app.fetch(
+      new Request("http://localhost/auth/me", { headers: { cookie: `session=${decoy}` } })
+    );
+    expect(((await decoyMe.json()) as { user: null }).user).toBeNull();
 
     // No account was created, so a real login with those credentials fails.
     const login = await post("/auth/login", { email, password: "password123" });

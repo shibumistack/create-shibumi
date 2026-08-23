@@ -9,7 +9,7 @@
 // buildBundles/injectBundles are exported so the byte-identity test can
 // regenerate in memory without writing.
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
@@ -43,7 +43,11 @@ function listFilesRecursively(dir: string): string[] {
   const results: string[] = [];
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
+    // lstat, never stat: a symlink here would embed arbitrary host files
+    // into the published bundle at sync time.
+    const info = lstatSync(full);
+    if (info.isSymbolicLink()) fail(`symlink not allowed in extension sources: ${full}`);
+    if (info.isDirectory()) {
       results.push(...listFilesRecursively(full));
     } else {
       results.push(full);

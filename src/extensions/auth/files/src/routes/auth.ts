@@ -52,11 +52,15 @@ function honeypotTripped(body: unknown): boolean {
 }
 
 function fakeRegisterResponse(c: Context, email: string): Response {
-  // Shaped like the real 201 so the bot learns nothing; no account exists.
+  // Shaped like the real 201, decoy session cookie included, so the bot
+  // learns nothing; no account or session exists.
+  const decoy = new Uint8Array(32);
+  crypto.getRandomValues(decoy);
+  setSessionCookie(c, Buffer.from(decoy).toString("base64url"));
   return c.json(
     {
       user: {
-        id: 1 + Math.floor(Math.random() * 100_000),
+        id: 1 + Math.floor(Math.random() * 1000),
         email,
         createdAt: new Date().toISOString(),
       },
@@ -125,6 +129,9 @@ authRoutes.post("/login", async (c) => {
   // Invalid shapes still consume rate budget keyed by IP alone.
   const email = parsed.success ? normalizeEmail(parsed.data.email) : "";
   if (!rateLimit(`auth:login:${clientKey(c)}:${email}`, 10, RATE_WINDOW_MS)) return tooMany(c);
+  // IP-independent per-account bucket: credential stuffing from many IPs
+  // still hits a ceiling.
+  if (email && !rateLimit(`auth:login:email:${email}`, 50, RATE_WINDOW_MS)) return tooMany(c);
   // Honeypot: answer exactly like a failed login, skip the work.
   const user =
     parsed.success && !honeypotTripped(body)
@@ -142,7 +149,11 @@ authRoutes.post("/login-link", async (c) => {
   if (!parsed.success) return c.json({ error: "Provide a valid email." }, 400);
   // Honeypot: the uniform response below already reveals nothing, so just
   // skip token creation and delivery.
-  const token = honeypotTripped(body) ? null : await createLoginToken(parsed.data.email);
+  // Per-email bucket, uniform response when exceeded: rotating IPs must not
+  // turn login links into email bombing or a stack of live tokens.
+  const emailAllowed = rateLimit(`auth:link:email:${normalizeEmail(parsed.data.email)}`, 5, RATE_WINDOW_MS);
+  const token =
+    honeypotTripped(body) || !emailAllowed ? null : await createLoginToken(parsed.data.email);
   if (token) {
     // Links are built from APP_ORIGIN, never from the Host header, so a
     // poisoned Host cannot redirect tokens in production. Development falls

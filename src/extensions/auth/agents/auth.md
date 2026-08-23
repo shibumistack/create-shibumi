@@ -46,8 +46,10 @@ app.use("/account/*", requireAuth);
 
 ## Accepted tradeoffs
 
-- Registration returns 409 for a taken email (standard enumeration tradeoff; registration reveals existence by nature). The login and login-link flows stay uniform.
+- Registration returns 409 for a taken email (standard enumeration tradeoff; registration reveals existence by nature). The login and login-link flows stay uniform in their responses; a registered email still costs marginally more server time on login-link requests.
 - `GET /auth/verify` changes state (sets the session); that is inherent to email login links. Tokens are single-use, 15-minute, and sha256-hashed at rest.
+- The login-link token rides in the URL query, so it can land in proxy access logs and browser history. Single use plus the 15-minute expiry bound the exposure; anyone who can read your access logs in real time has bigger levers.
+- Rate limits: per IP+email and per email (50/15 min) on login, per IP (5/15 min) and per email (5/15 min, uniform response) on login-link. IP keys trust `x-forwarded-for` and are only meaningful behind the deployment proxy.
 
 ## Wiring login-link delivery
 
