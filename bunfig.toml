@@ -1,0 +1,4 @@
+[test]
+# Template directories ship their own test/ folders to generated projects;
+# they are assets here, not this package's tests.
+root = "./test"

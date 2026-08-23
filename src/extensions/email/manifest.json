@@ -1,0 +1,10 @@
+{
+  "name": "email",
+  "title": "Email",
+  "description": "Transactional email via Resend",
+  "files": [
+    { "from": "files/src/lib/email.ts", "to": "src/lib/email.ts" }
+  ],
+  "agents": "agents/email.md",
+  "deps": ["resend"]
+}

@@ -1,0 +1,8 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: Georgia, serif; line-height: 1.6; color: #1a1a1a; background: #faf8f4; max-width: 640px; margin: 0 auto; padding: 2rem 1rem; }
+a { color: #c76647; text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { margin: 1rem 0 0.5rem; }
+ul { margin: 1rem 0; padding-left: 1.5rem; }
+li { margin: 0.5rem 0; }
+p { margin: 0.75rem 0; }

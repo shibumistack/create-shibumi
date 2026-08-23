@@ -1,0 +1,20 @@
+{
+  "name": "auth",
+  "title": "Auth",
+  "description": "Cookie sessions with password or magic-link login",
+  "files": [
+    { "from": "files/src/lib/session.ts", "to": "src/lib/session.ts" },
+    { "from": "files/src/middleware/auth.ts", "to": "src/middleware/auth.ts" },
+    { "from": "files/src/routes/auth.ts", "to": "src/routes/auth.ts" }
+  ],
+  "agents": "agents/auth.md",
+  "hooks": [
+    {
+      "file": "src/app.ts",
+      "find": "import { Hono } from \"hono\";",
+      "insert": "import { authRoutes } from \"./routes/auth\";\nimport { authMiddleware } from \"./middleware/auth\";",
+      "after": "export const app = new Hono();",
+      "add": "\napp.route(\"/auth\", authRoutes);\napp.use(\"/protected/*\", authMiddleware);"
+    }
+  ]
+}

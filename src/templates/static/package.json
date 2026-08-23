@@ -1,0 +1,20 @@
+{
+  "name": "my-shibumi-site",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "bun src/serve.ts",
+    "start": "bun src/serve.ts",
+    "build": "bun run src/build.ts",
+    "optimize": "bun run src/lib/optimize-images.ts",
+    "preview": "bun src/serve.ts --dist",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "marked": "^12.0.0",
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
