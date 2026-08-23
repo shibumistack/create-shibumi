@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run check
+      - name: forbid shell-string exec in shipped surface
+        run: |
+          if grep -rn "execSync\|spawnSync(\"\|spawn(\"" src/; then
+            echo "shell-string exec found in src/"; exit 1
+          fi
+      - name: assert packed tarball matches allowlist
+        run: |
+          npm pack --dry-run --json > /tmp/pack.json
+          node -e '
+            const files = require("/tmp/pack.json")[0].files.map(f => f.path);
+            const bad = files.filter(p =>
+              !/^(LICENSE|README\.md|package\.json|src\/(cli|args|create)\.ts|src\/templates\/static\/)/.test(p));
+            if (bad.length) { console.error("unexpected packed files:", bad); process.exit(1); }
+          '
