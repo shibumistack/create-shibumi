@@ -1,0 +1,8 @@
+{
+  "version": "0.1.0",
+  "extensions": [
+    "auth",
+    "email"
+  ],
+  "sha256": "803514ba4b0c8ab79427ceb749c98344f4edd15a52336fa9e8789d7e4ab72205"
+}

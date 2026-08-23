@@ -190,6 +190,30 @@ export async function createProject(
         mkdirSync(join(tmp, "scripts"), { recursive: true });
         cpSync(shipSrc, join(tmp, "scripts", "ship.ts"));
       }
+
+      // Same pattern for the extension installer: vendored, checksum-locked,
+      // verified at scaffold time. Extension bundles are embedded in the
+      // file, so `bun run shibumi add` never touches the network.
+      if (pkg.scripts?.shibumi) {
+        const shibumiSrc = join(templatesDir, "shibumi.ts");
+        const shibumiLockPath = join(templatesDir, "..", "..", "scripts", "shibumi.lock.json");
+        if (!existsSync(shibumiSrc)) {
+          throw new CreateError(`Vendored extension installer missing at ${shibumiSrc}; aborting.`);
+        }
+        if (opts.templatesDir === undefined) {
+          const lock = JSON.parse(readFileSync(shibumiLockPath, "utf8")) as { sha256: string };
+          const digest = new Bun.CryptoHasher("sha256")
+            .update(await Bun.file(shibumiSrc).arrayBuffer())
+            .digest("hex");
+          if (digest !== lock.sha256) {
+            throw new CreateError(
+              `Vendored extension installer does not match its checksum lock; the package may be corrupt. Reinstall create-shibumi.`
+            );
+          }
+        }
+        mkdirSync(join(tmp, "scripts"), { recursive: true });
+        cpSync(shibumiSrc, join(tmp, "scripts", "shibumi.ts"));
+      }
     }
 
     if (opts.git) {

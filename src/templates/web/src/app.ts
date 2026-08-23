@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { serveStatic } from "hono/bun";
 import { z } from "zod";
 
@@ -34,7 +35,10 @@ export function createApp(): Hono {
 
   // Thrown errors bypass the middleware above (the exception unwinds past
   // its post-next line), so the error handler applies the same set.
+  // Deliberate HTTP errors (framework middleware like CSRF throws
+  // HTTPException) keep their status; everything else is a logged 500.
   app.onError((err, c) => {
+    if (err instanceof HTTPException) return applyHeaders(err.getResponse());
     console.error(err);
     return applyHeaders(c.text("Internal error", 500));
   });

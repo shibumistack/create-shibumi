@@ -1,171 +1,178 @@
-/**
- * Auth routes: password login and magic link login.
- *
- * Password flow:
- *   POST /auth/register: create account
- *   POST /auth/login: login with email/password
- *
- * Magic link flow:
- *   POST /auth/magic-request: request a magic link (sends email)
- *   GET  /auth/magic-verify: verify token from email link
- *
- * Both:
- *   POST /auth/logout: destroy session
- */
-
+// Auth routes, mounted at /auth by the installer. JSON bodies in, JSON out.
+// CSRF middleware (Origin check) covers every mutation; cross-origin JSON
+// posts are additionally blocked by the browser preflight. Rate limits key on
+// the client IP, which is only meaningful behind the deployment proxy that
+// sets x-forwarded-for; direct-exposed deployments share the "local" bucket.
 import { Hono } from "hono";
-import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import type { Context } from "hono";
+import { csrf } from "hono/csrf";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { z } from "zod";
 import {
-  createUser,
-  getUserByEmail,
-  getUserById,
+  SESSION_COOKIE,
+  SESSION_MAX_AGE_S,
+  consumeLoginToken,
+  createLoginToken,
   createSession,
+  createUser,
+  deliverLoginLink,
   destroySession,
-  validateSession,
-  createMagicLink,
-  validateMagicLink,
-} from "../lib/session";
+  normalizeEmail,
+  rateLimit,
+  sessionUser,
+  verifyLogin,
+} from "../lib/auth";
 
 export const authRoutes = new Hono();
 
-// ── Register (password) ─────────────────────────────────────────────
+authRoutes.use(csrf());
+
+// `website` is a honeypot: a decoy field no real client sends. Bots that
+// autofill it get a plausible response with no work done.
+const credentials = z.object({
+  email: z.email().max(254),
+  password: z.string().min(8).max(128),
+  website: z.string().optional(),
+});
+
+const emailOnly = z.object({
+  email: z.email().max(254),
+  website: z.string().optional(),
+});
+
+function honeypotTripped(body: unknown): boolean {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    "website" in body &&
+    typeof (body as { website: unknown }).website === "string" &&
+    (body as { website: string }).website.length > 0
+  );
+}
+
+function fakeRegisterResponse(c: Context, email: string): Response {
+  // Shaped like the real 201 so the bot learns nothing; no account exists.
+  return c.json(
+    {
+      user: {
+        id: 1 + Math.floor(Math.random() * 100_000),
+        email,
+        createdAt: new Date().toISOString(),
+      },
+    },
+    201
+  );
+}
+
+const RATE_WINDOW_MS = 15 * 60 * 1000;
+
+function clientKey(c: Context): string {
+  return c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+}
+
+function tooMany(c: Context): Response {
+  return c.json({ error: "Too many attempts. Try again later." }, 429);
+}
+
+async function jsonBody(c: Context): Promise<unknown> {
+  try {
+    return await c.req.json();
+  } catch {
+    return null;
+  }
+}
+
+function setSessionCookie(c: Context, token: string): void {
+  // Secure works in local development too: browsers treat localhost as a
+  // secure context.
+  setCookie(c, SESSION_COOKIE, token, {
+    path: "/",
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    maxAge: SESSION_MAX_AGE_S,
+  });
+}
 
 authRoutes.post("/register", async (c) => {
-  const { email, password } = await c.req.json();
-
-  if (!email || !password) {
-    return c.json({ error: "Email and password required" }, 400);
+  if (!rateLimit(`auth:register:${clientKey(c)}`, 10, RATE_WINDOW_MS)) return tooMany(c);
+  const body = await jsonBody(c);
+  const parsed = credentials.safeParse(body);
+  if (honeypotTripped(body)) {
+    return fakeRegisterResponse(c, parsed.success ? normalizeEmail(parsed.data.email) : "user@example.com");
   }
-
-  if (password.length < 8) {
-    return c.json({ error: "Password must be at least 8 characters" }, 400);
+  if (!parsed.success) {
+    return c.json({ error: "Provide a valid email and a password of 8 to 128 characters." }, 400);
   }
-
-  const existing = getUserByEmail(email);
-  if (existing) {
-    return c.json({ error: "Email already registered" }, 409);
+  try {
+    const user = await createUser(parsed.data.email, parsed.data.password);
+    setSessionCookie(c, await createSession(user.id));
+    return c.json({ user }, 201);
+  } catch {
+    // UNIQUE constraint on email; the only failing insert path here.
+    return c.json({ error: "Email is already registered." }, 409);
   }
-
-  const user = createUser(email, password);
-  const token = createSession(user.id);
-
-  setCookie(c, "session", token, {
-    path: "/",
-    httpOnly: true,
-    sameSite: "lax",
-    maxAge: 7 * 24 * 60 * 60,
-  });
-
-  return c.json({ ok: true, user: { id: user.id, email: user.email } });
 });
-
-// ── Login (password) ────────────────────────────────────────────────
 
 authRoutes.post("/login", async (c) => {
-  const { email, password } = await c.req.json();
-
-  if (!email || !password) {
-    return c.json({ error: "Email and password required" }, 400);
-  }
-
-  const user = getUserByEmail(email);
-  if (!user || !user.password_hash) {
-    return c.json({ error: "Invalid email or password" }, 401);
-  }
-
-  const valid = await Bun.password.verify(password, user.password_hash);
-  if (!valid) {
-    return c.json({ error: "Invalid email or password" }, 401);
-  }
-
-  const token = createSession(user.id);
-
-  setCookie(c, "session", token, {
-    path: "/",
-    httpOnly: true,
-    sameSite: "lax",
-    maxAge: 7 * 24 * 60 * 60,
-  });
-
-  return c.json({ ok: true, user: { id: user.id, email: user.email } });
+  const body = await jsonBody(c);
+  const parsed = credentials.safeParse(body);
+  // Invalid shapes still consume rate budget keyed by IP alone.
+  const email = parsed.success ? normalizeEmail(parsed.data.email) : "";
+  if (!rateLimit(`auth:login:${clientKey(c)}:${email}`, 10, RATE_WINDOW_MS)) return tooMany(c);
+  // Honeypot: answer exactly like a failed login, skip the work.
+  const user =
+    parsed.success && !honeypotTripped(body)
+      ? await verifyLogin(parsed.data.email, parsed.data.password)
+      : null;
+  if (!user) return c.json({ error: "Invalid email or password." }, 401);
+  setSessionCookie(c, await createSession(user.id));
+  return c.json({ user });
 });
 
-// ── Request magic link ──────────────────────────────────────────────
-
-authRoutes.post("/magic-request", async (c) => {
-  const { email } = await c.req.json();
-
-  if (!email) {
-    return c.json({ error: "Email required" }, 400);
+authRoutes.post("/login-link", async (c) => {
+  if (!rateLimit(`auth:link:${clientKey(c)}`, 5, RATE_WINDOW_MS)) return tooMany(c);
+  const body = await jsonBody(c);
+  const parsed = emailOnly.safeParse(body);
+  if (!parsed.success) return c.json({ error: "Provide a valid email." }, 400);
+  // Honeypot: the uniform response below already reveals nothing, so just
+  // skip token creation and delivery.
+  const token = honeypotTripped(body) ? null : await createLoginToken(parsed.data.email);
+  if (token) {
+    const url = new URL(`/auth/verify?token=${token}`, c.req.url).toString();
+    try {
+      await deliverLoginLink(normalizeEmail(parsed.data.email), url);
+    } catch (error) {
+      // Delivery failure must not change the response, or it would reveal
+      // which emails have accounts.
+      console.error(error instanceof Error ? error.message : String(error));
+    }
   }
+  return c.json({ ok: true, message: "If that email is registered, a login link is on its way." });
+});
 
-  const user = getUserByEmail(email);
-
-  // Always return success to prevent email enumeration
+authRoutes.get("/verify", async (c) => {
+  if (!rateLimit(`auth:verify:${clientKey(c)}`, 10, RATE_WINDOW_MS)) return tooMany(c);
+  const token = c.req.query("token") ?? "";
+  const user = token ? await consumeLoginToken(token) : null;
   if (!user) {
-    return c.json({ ok: true, message: "If that email is registered, a link was sent" });
+    return c.json({ error: "This login link is invalid or has expired. Request a new one." }, 400);
   }
-
-  const token = createMagicLink(user.id);
-  const verifyUrl = `/auth/magic-verify?token=${token}`;
-
-  // TODO: Send email with verifyUrl
-  // For now, log it (in production, use the email extension)
-  console.log(`Magic link for ${email}: ${verifyUrl}`);
-
-  return c.json({ ok: true, message: "If that email is registered, a link was sent" });
-});
-
-// ── Verify magic link ───────────────────────────────────────────────
-
-authRoutes.get("/magic-verify", async (c) => {
-  const token = c.req.query("token");
-
-  if (!token) {
-    return c.json({ error: "Token required" }, 400);
-  }
-
-  const result = validateMagicLink(token);
-  if (!result) {
-    return c.json({ error: "Invalid or expired link" }, 400);
-  }
-
-  const sessionToken = createSession(result.userId);
-
-  setCookie(c, "session", sessionToken, {
-    path: "/",
-    httpOnly: true,
-    sameSite: "lax",
-    maxAge: 7 * 24 * 60 * 60,
-  });
-
+  setSessionCookie(c, await createSession(user.id));
   return c.redirect("/");
 });
 
-// ── Logout ──────────────────────────────────────────────────────────
-
 authRoutes.post("/logout", async (c) => {
-  const token = getCookie(c, "session");
+  const token = getCookie(c, SESSION_COOKIE);
   if (token) {
-    destroySession(token);
-    deleteCookie(c, "session", { path: "/" });
+    await destroySession(token);
+    deleteCookie(c, SESSION_COOKIE, { path: "/" });
   }
   return c.json({ ok: true });
 });
 
-// ── Current user ────────────────────────────────────────────────────
-
 authRoutes.get("/me", async (c) => {
-  const token = getCookie(c, "session");
-  if (!token) {
-    return c.json({ user: null });
-  }
-
-  const userId = validateSession(token);
-  if (!userId) {
-    return c.json({ user: null });
-  }
-
-  const user = getUserById(userId);
+  const token = getCookie(c, SESSION_COOKIE);
+  const user = token ? await sessionUser(token) : null;
   return c.json({ user });
 });

@@ -14,7 +14,8 @@
     "ship:setup": "bun scripts/ship.ts --setup",
     "ship:update": "bun scripts/ship.ts --update",
     "ship:status": "bun scripts/ship.ts --status",
-    "ship:logs": "bun scripts/ship.ts --logs"
+    "ship:logs": "bun scripts/ship.ts --logs",
+    "shibumi": "bun scripts/shibumi.ts"
   },
   "dependencies": {
     "hono": "4.13.3",

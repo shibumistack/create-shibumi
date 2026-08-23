@@ -1,20 +1,36 @@
 {
   "name": "auth",
   "title": "Auth",
-  "description": "Cookie sessions with password or magic-link login",
-  "files": [
-    { "from": "files/src/lib/session.ts", "to": "src/lib/session.ts" },
-    { "from": "files/src/middleware/auth.ts", "to": "src/middleware/auth.ts" },
-    { "from": "files/src/routes/auth.ts", "to": "src/routes/auth.ts" }
-  ],
-  "agents": "agents/auth.md",
+  "description": "Cookie sessions with password and login-link sign-in, CSRF protection, and rate limiting",
+  "requires": "database",
+  "env": [],
   "hooks": [
     {
       "file": "src/app.ts",
       "find": "import { Hono } from \"hono\";",
-      "insert": "import { authRoutes } from \"./routes/auth\";\nimport { authMiddleware } from \"./middleware/auth\";",
-      "after": "export const app = new Hono();",
-      "add": "\napp.route(\"/auth\", authRoutes);\napp.use(\"/protected/*\", authMiddleware);"
+      "insert": "import { authRoutes } from \"./routes/auth\";"
+    },
+    {
+      "file": "src/app.ts",
+      "find": "  app.get(\"/healthz\", (c) => c.json({ ok: true }));",
+      "insert": "\n  app.route(\"/auth\", authRoutes);"
+    },
+    {
+      "file": "src/db/index.ts",
+      "find": "import * as schema from \"./schema\";",
+      "insert": "import * as authSchema from \"./schema-auth\";"
+    },
+    {
+      "file": "src/db/index.ts",
+      "find": "export const db = drizzle(sqlite, { schema });",
+      "replace": "export const db = drizzle(sqlite, { schema: { ...schema, ...authSchema } });"
+    },
+    {
+      "file": "test/app.test.ts",
+      "find": "        \"GET /healthz\",",
+      "insert": "        // Auth extension (bun run shibumi add auth): CSRF-protected and\n        // rate-limited; covered by test/auth.test.ts.\n        \"ALL /auth/*\",\n        \"POST /auth/register\",\n        \"POST /auth/login\",\n        \"POST /auth/login-link\",\n        \"GET /auth/verify\",\n        \"POST /auth/logout\",\n        \"GET /auth/me\","
     }
-  ]
+  ],
+  "rootSection": "## Auth extension\n\nInstalled by `bun run shibumi add auth`; full guide in `agents/auth.md`.\n\n- Routes under `/auth` (register, login, login-link, verify, logout, me) live in `src/routes/auth.ts`; core logic and `requireAuth`/`optionalAuth` middleware in `src/lib/auth.ts`.\n- Sessions: HttpOnly Secure cookie; the database stores sha256 token hashes in `sessions`, never tokens.\n- Tables `users`, `sessions`, `login_tokens` come from the installed migration; Drizzle schema in `src/db/schema-auth.ts`.\n- Login-link delivery is a seam (`deliverLoginLink`): development logs the URL, production throws until wired to the email extension (snippet in agents/auth.md).\n- Honeypot: the optional `website` field on register/login/login-link marks bots; non-empty values get plausible responses with no work done.\n- Removal deletes code only; tables stay. Manual drop statements are in agents/auth.md.",
+  "removeNote": "Tables users, sessions, and login_tokens stay in app.db wherever the migration already ran. Drop them manually if unwanted: DROP TABLE login_tokens; DROP TABLE sessions; DROP TABLE users;"
 }

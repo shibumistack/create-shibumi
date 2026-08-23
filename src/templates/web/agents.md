@@ -12,6 +12,7 @@ bun run check    # TypeScript check
 bun run build    # bundle src/server.ts to dist/server.js
 bun ship         # build image, upload, deploy via shibumi-server
 bun ship:setup   # configure the deploy target
+bun run shibumi add <name>  # install an extension (auth, email); --dry-run previews
 ```
 
 ## Routes and templates

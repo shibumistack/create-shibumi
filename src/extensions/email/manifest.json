@@ -1,10 +1,16 @@
 {
   "name": "email",
   "title": "Email",
-  "description": "Transactional email via Resend",
-  "files": [
-    { "from": "files/src/lib/email.ts", "to": "src/lib/email.ts" }
+  "description": "Transactional email via Resend's HTTP API: send helper, safe templates, webhook verification",
+  "requires": null,
+  "env": ["RESEND_API_KEY", "EMAIL_FROM", "RESEND_WEBHOOK_SECRET"],
+  "hooks": [
+    {
+      "file": "src/env.ts",
+      "find": "const schema = z.object({",
+      "insert": "  // Email extension (shibumi add email): checked at send time, not boot.\n  RESEND_API_KEY: z.string().min(1).optional(),\n  EMAIL_FROM: z.string().min(3).optional(),\n  RESEND_WEBHOOK_SECRET: z.string().min(1).optional(),"
+    }
   ],
-  "agents": "agents/email.md",
-  "deps": ["resend"]
+  "rootSection": "## Email extension\n\nInstalled by `bun run shibumi add email`; full guide in `agents/email.md`.\n\n- `src/lib/email.ts`: `sendEmail` (plain fetch to Resend, no SDK), `renderTemplate` (HTML-escapes every variable), `verifyResendWebhook` (svix HMAC, constant-time).\n- Env: `RESEND_API_KEY` and `EMAIL_FROM` required at send time, `RESEND_WEBHOOK_SECRET` for webhooks; all validated in `src/env.ts`, none required at boot.\n- Verify webhooks against the raw body string before parsing (snippet in agents/email.md).\n- No tables; removal deletes the code and reverses the env edit.",
+  "removeNote": "No tables are involved; remove any RESEND_* variables from the deployment environment when no longer needed."
 }

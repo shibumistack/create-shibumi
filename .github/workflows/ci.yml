@@ -30,13 +30,15 @@ jobs:
           node -e '
             const files = require("/tmp/pack.json")[0].files.map(f => f.path);
             const bad = files.filter(p =>
-              !/^(LICENSE$|README\.md$|package\.json$|scripts\/ship\.lock\.json$|src\/(cli|args|create)\.ts$|src\/templates\/ship\.ts$|src\/templates\/(static|web|full-stack|blog)\/)/.test(p)
+              !/^(LICENSE$|README\.md$|package\.json$|scripts\/(ship|shibumi)\.lock\.json$|src\/(cli|args|create)\.ts$|src\/templates\/(ship|shibumi)\.ts$|src\/templates\/(static|web|full-stack|blog)\/)/.test(p)
               || /(^|\/)(\.env|id_rsa|.*\.(pem|key|p12))$/.test(p));
             if (bad.length) { console.error("unexpected packed files:", bad); process.exit(1); }
             const required = [
               "src/cli.ts", "src/args.ts", "src/create.ts",
               "src/templates/ship.ts",
+              "src/templates/shibumi.ts",
               "scripts/ship.lock.json",
+              "scripts/shibumi.lock.json",
               "src/templates/static/gitignore",
               "src/templates/web/gitignore",
               "src/templates/web/.dockerignore",
@@ -64,6 +66,14 @@ jobs:
           cd fixture-web
           bun test
           bun run check
+          # email extension cycle: add, prove, remove, prove clean
+          bun run shibumi add email --yes
+          grep -q RESEND_API_KEY src/env.ts
+          bun test
+          bun run check
+          bun run shibumi remove email --yes
+          test ! -f src/lib/email.ts
+          bun test
           bun run build
           docker build -t fixture-web .
           docker run -d --rm --name fixture-web -p 127.0.0.1:39132:3000 fixture-web
@@ -78,17 +88,29 @@ jobs:
           cd fixture-data
           bun test
           bun run check
+          # auth extension: dry run writes nothing, then a real install; the
+          # image below ships with auth so the container proves the migration
+          bun run shibumi add auth --dry-run --yes
+          test ! -f src/db/schema-auth.ts
+          bun run shibumi add auth --yes
+          test -f src/db/migrations/0002_auth.sql
+          bun test
+          bun run check
           bun run build
           docker build -t fixture-data .
           docker volume create fsvol
           docker run -d --rm --name fs1 -v fsvol:/data -p 127.0.0.1:39133:3000 fixture-data
           sleep 3
           wget -q -T 5 -O - http://127.0.0.1:39133/api/notes | grep -q 'It persists.'
+          # auth works inside the container (migration applied at boot)
+          wget -q -T 5 -O - --header 'content-type: application/json' --post-data '{"email":"ci@example.com","password":"password123"}' http://127.0.0.1:39133/auth/register | grep -q 'ci@example.com'
           docker exec fs1 bun -e 'import { Database } from "bun:sqlite"; new Database("/data/app.db").query("INSERT INTO notes (title) VALUES (?)").run("survives");'
           docker rm -f fs1
           docker run -d --rm --name fs2 -v fsvol:/data -p 127.0.0.1:39133:3000 fixture-data
           sleep 3
           wget -q -T 5 -O - http://127.0.0.1:39133/api/notes | grep -q 'survives'
+          # the registered user persists across container replacement too
+          wget -q -T 5 -O - --header 'content-type: application/json' --post-data '{"email":"ci@example.com","password":"password123"}' http://127.0.0.1:39133/auth/login | grep -q 'ci@example.com'
           docker rm -f fs2
       - name: blog template acceptance (scaffold, build, artifacts)
         run: |

@@ -12,7 +12,9 @@
     "src/args.ts",
     "src/create.ts",
     "src/templates/ship.ts",
+    "src/templates/shibumi.ts",
     "scripts/ship.lock.json",
+    "scripts/shibumi.lock.json",
     "src/templates/static/",
     "src/templates/blog/",
     "src/templates/full-stack/",
@@ -24,7 +26,8 @@
     "start": "bun src/cli.ts",
     "test": "bun test test",
     "check": "tsc --noEmit",
-    "sync:ship": "bun scripts/sync-ship.ts"
+    "sync:ship": "bun scripts/sync-ship.ts",
+    "sync:extensions": "bun scripts/sync-extensions.ts"
   },
   "keywords": [
     "shibumi",
