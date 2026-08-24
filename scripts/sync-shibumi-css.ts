@@ -8,8 +8,8 @@ import { join, resolve } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
 const SITE = resolve(process.argv[2] ?? join(ROOT, "..", "shibumistack.dev"), "public");
-// kozo.webp sits beside the stylesheet; the css references it relatively.
-const FILES = ["shibumi.css", "kozo.webp"];
+// css only: apps get a flat surface, so the kozo image stays with the sites.
+const FILES = ["shibumi.css"];
 
 if (!existsSync(join(SITE, "shibumi.css"))) {
   console.error(`canonical shibumi.css not found in ${SITE}; pass the site checkout as the first argument.`);

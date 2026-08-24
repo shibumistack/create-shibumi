@@ -2,6 +2,12 @@
    Edit freely; this file is yours. Tokens: --paper --ink --muted --line
    --accent, type scale --text-xs..--text-2xl, --font-sans/serif/mono. */
 
+/* The vendored shibumi.css sets a kozo paper background for the sites; apps
+   stay flat, and this override also stops the browser fetching the image. */
+body {
+  background-image: none;
+}
+
 .scaffold {
   max-width: 40.625rem;
   margin: 0 auto;
