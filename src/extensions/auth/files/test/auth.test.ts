@@ -24,6 +24,16 @@ const {
 const { eq } = await import("drizzle-orm");
 await applyMigrations(sqlite);
 
+// Deliberate fail-closed paths (unset APP_ORIGIN, unwired link delivery) log
+// through console.error while the HTTP response stays neutral. Filter exactly
+// that expected noise so a green suite reads green; anything else still prints.
+const realConsoleError = console.error;
+console.error = (...args: unknown[]) => {
+  const text = args.map(String).join(" ");
+  if (text.includes("APP_ORIGIN is not set") || text.includes("Login-link delivery is not wired")) return;
+  realConsoleError(...args);
+};
+
 let userCounter = 0;
 function uniqueEmail(): string {
   userCounter += 1;
