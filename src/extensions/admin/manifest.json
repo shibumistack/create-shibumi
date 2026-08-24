@@ -1,0 +1,32 @@
+{
+  "name": "admin",
+  "title": "Admin",
+  "description": "Minimal server-rendered admin panel: list and delete users, gated by an ADMIN_EMAILS allowlist",
+  "requires": "database",
+  "dependsOn": ["auth"],
+  "env": ["ADMIN_EMAILS"],
+  "hooks": [
+    {
+      "file": "src/app.ts",
+      "find": "import { Hono } from \"hono\";",
+      "insert": "import { adminRoutes } from \"./routes/admin\";"
+    },
+    {
+      "file": "src/app.ts",
+      "find": "  app.get(\"/healthz\", (c) => c.json({ ok: true }));",
+      "insert": "\n  app.route(\"/admin\", adminRoutes);"
+    },
+    {
+      "file": "src/env.ts",
+      "find": "  DB_PATH: z.string().min(1).default(\"data/app.db\"),",
+      "insert": "  // Admin extension (shibumi add admin): comma-separated admin emails.\n  ADMIN_EMAILS: z.string().optional(),"
+    },
+    {
+      "file": "test/app.test.ts",
+      "find": "        \"GET /healthz\",",
+      "insert": "        // Admin extension (bun run shibumi add admin): allowlist-gated and\n        // CSRF-protected; covered by test/admin.test.ts. Two ALL entries: the\n        // CSRF and admin-guard middlewares.\n        \"ALL /admin/*\",\n        \"ALL /admin/*\",\n        \"GET /admin\",\n        \"POST /admin/users/:id/delete\","
+    }
+  ],
+  "rootSection": "## Admin extension\n\nInstalled by `bun run shibumi add admin` (needs the auth extension); full guide in `agents/admin.md`.\n\n- Server-rendered panel at `/admin` (`src/routes/admin.ts`); authorization and read models in `src/lib/admin.ts`; styles in `public/admin.css`.\n- Admins are the emails in `ADMIN_EMAILS` (comma-separated, case-insensitive), validated in `src/env.ts`. Empty means no admins and `/admin` is locked.\n- `GET /admin` lists users; `POST /admin/users/:id/delete` deletes one (CSRF-protected, cascades via foreign keys, refuses self-delete). Signed-out visitors get 401, non-admins 403.\n- No new tables. Deleting a user does not sweep upload blobs; the uploads extension owns that.\n- Removal deletes code and reverses edits; remove admin before auth.",
+  "removeNote": "Remove admin before auth (admin depends on it). Remove the ADMIN_EMAILS variable from the environment when no longer needed."
+}

@@ -303,7 +303,7 @@ function main(): void {
       }
       // Order matters: uploads dependsOn auth, so auth is added first and
       // removed last (the cycle removes in reverse).
-      extensionCycle(id, dir, id === "full-stack" ? ["auth", "email", "uploads"] : ["email"]);
+      extensionCycle(id, dir, id === "full-stack" ? ["auth", "email", "uploads", "admin"] : ["email"]);
     }
 
     if (id === "static") {

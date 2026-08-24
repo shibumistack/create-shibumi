@@ -98,11 +98,11 @@ export function buildBundles(extensionsDir = EXTENSIONS_DIR): unknown[] {
     const agentsSource = join(dir, "agents", `${name}.md`);
     if (!existsSync(agentsSource)) fail(`${name}: agents/${name}.md missing`);
 
+    // A migration is optional: requires:"database" means the extension needs
+    // the project's database to exist, not that it adds tables (admin queries
+    // existing tables and ships none).
     const migrationPath = join(dir, "migration.sql");
     const migration = existsSync(migrationPath) ? readFileSync(migrationPath, "utf8") : null;
-    if (manifest.requires === "database" && migration === null) {
-      fail(`${name}: requires database but has no migration.sql`);
-    }
 
     bundles.push({
       name: manifest.name,

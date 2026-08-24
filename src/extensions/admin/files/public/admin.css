@@ -1,0 +1,55 @@
+/* Admin panel styles. Reuses the paper/ink/persimmon tokens from style.css;
+   utilitarian, no framework. */
+.admin {
+  max-width: 60rem;
+}
+
+.admin .muted {
+  opacity: 0.65;
+  font-size: 0.9rem;
+}
+
+.admin table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.admin th,
+.admin td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
+  vertical-align: middle;
+}
+
+.admin th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+.admin form {
+  margin: 0;
+}
+
+.admin button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--ink) 25%, transparent);
+  background: transparent;
+  color: var(--ink);
+  padding: 0.3rem 0.7rem;
+  border-radius: 0.3rem;
+}
+
+.admin button.danger {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.admin button.danger:hover {
+  background: var(--accent);
+  color: var(--paper);
+}
