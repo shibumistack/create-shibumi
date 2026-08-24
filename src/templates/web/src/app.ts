@@ -63,6 +63,8 @@ const page = `<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Web app · shibumi</title>
+    <link rel="icon" type="image/svg+xml" href="/public/favicon.svg" />
+    <meta name="generator" content="create-shibumi (shibumistack.dev)" />
     <link rel="stylesheet" href="/public/vendor/shibumi.css" />
     <link rel="stylesheet" href="/public/style.css" />
     <!-- app.js must load before Alpine so the alpine:init listener exists

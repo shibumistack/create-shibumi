@@ -1,36 +1,71 @@
+/* Self-contained styles on the shibumi palette. Yours to edit. */
 :root {
   color-scheme: light dark;
-  --paper: #f5f0e4;
-  --ink: #1b130f;
-  --accent: #e95f19;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #1b130f;
-    --ink: #f5f0e4;
-    --accent: #ff8648;
-  }
+  --paper: light-dark(#f5f0e4, #1b130f);
+  --ink: light-dark(#272016, #eee5d7);
+  --muted: light-dark(#746b5d, #aaa092);
+  --faint: light-dark(rgba(39, 32, 22, 0.055), rgba(238, 229, 215, 0.07));
+  --line: light-dark(rgba(39, 32, 22, 0.14), rgba(238, 229, 215, 0.16));
+  --accent: light-dark(#e95f19, #ff8648);
+  --font-serif: ui-serif, Georgia, "Iowan Old Style", Cambria, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
 body {
   margin: 0;
   background: var(--paper);
   color: var(--ink);
-  font-family: system-ui, sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 1.125rem;
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
 main {
-  max-width: 40rem;
+  max-width: 40.625rem;
   margin: 0 auto;
-  padding: 4rem 1.5rem;
+  padding: clamp(3rem, 9vh, 6.5rem) 1.5rem 4rem;
+}
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0 0 3.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.875rem;
+  letter-spacing: 0.04em;
+}
+
+.masthead-mark {
+  color: var(--accent);
+  font-size: 1rem;
 }
 
 h1 {
-  font-family: Georgia, "Times New Roman", serif;
-  font-weight: 500;
+  margin: 0 0 0.75rem;
+  font-family: var(--font-serif);
+  font-size: clamp(2.6rem, 7vw, 3.8rem);
+  font-weight: 450;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+.lede {
+  margin: 0 0 3rem;
+  max-width: 34rem;
+  color: var(--muted);
+  font-size: 1.3125rem;
+  line-height: 1.55;
+}
+
+code {
+  padding: 0.12em 0.42em;
+  border-radius: 0.35rem;
+  background: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
 }
 
 a {
@@ -42,9 +77,4 @@ a {
 
 a:hover {
   text-decoration-color: var(--accent);
-}
-
-code {
-  font-family: ui-monospace, monospace;
-  font-size: 0.9em;
 }
