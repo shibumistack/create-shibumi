@@ -2,6 +2,8 @@
 import BaseHead from "../components/BaseHead.astro";
 import { SITE } from "../site";
 
+const isHome = Astro.url.pathname === "/";
+
 interface Props {
   title: string;
   description: string;
@@ -17,9 +19,16 @@ interface Props {
     <BaseHead {...Astro.props} />
   </head>
   <body>
-    <header>
-      <a href="/" class="mark"><span class="mark-badge">渋み</span><span>{SITE.name}</span></a>
-    </header>
+    {
+      !isHome && (
+        <header>
+          <a href="/" class="mark">
+            <span class="mark-badge" transition:name="site-mark">渋み</span>
+            <span transition:name="site-title">{SITE.name}</span>
+          </a>
+        </header>
+      )
+    }
     <main>
       <slot />
     </main>

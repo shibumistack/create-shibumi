@@ -172,3 +172,15 @@ article small {
   color: var(--muted);
   font-size: 0.8rem;
 }
+
+.home-title {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.home-title .mark-badge {
+  color: var(--accent);
+  font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+  font-size: 0.42em;
+}

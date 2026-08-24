@@ -12,7 +12,10 @@ const formatDate = (date: Date) =>
 
 <Base title={SITE.name} description={SITE.description}>
   <article>
-    <h1>{SITE.name}</h1>
+    <h1 class="home-title">
+      <span class="mark-badge" transition:name="site-mark">渋み</span>
+      <span transition:name="site-title">{SITE.name}</span>
+    </h1>
     <ul class="posts">
       {
         posts.map((post) => (
