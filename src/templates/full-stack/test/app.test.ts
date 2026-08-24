@@ -39,7 +39,7 @@ describe("routes", () => {
     const res = await req("/");
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain("It persists.");
+    expect(html).toContain("Full Stack app");
     expect(html.indexOf("/public/app.js")).toBeLessThan(
       html.indexOf("/public/vendor/alpine-csp-3.16.2.min.js")
     );
@@ -108,18 +108,41 @@ describe("security", () => {
         "GET /",
         "GET /api/hello",
         "GET /api/notes",
+        "GET /api/counter",
+        "POST /api/counter",
         "GET /healthz",
       ].sort()
     );
   });
 
-  it("rejects every mutation verb on every route", async () => {
+  it("rejects every mutation verb on every route except the demo counter", async () => {
     for (const path of ["/", "/api/hello", "/api/notes", "/healthz", "/public/style.css"]) {
       for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
         const res = await req(path, { method });
         expect([404, 405]).toContain(res.status);
       }
     }
+    for (const method of ["PUT", "PATCH", "DELETE"]) {
+      expect([404, 405]).toContain((await req("/api/counter", { method })).status);
+    }
+  });
+
+  it("persists counter increments in the database", async () => {
+    const before = (await (await req("/api/counter")).json()).count;
+    const res = await req("/api/counter", { method: "POST", headers: { "x-forwarded-for": "10.9.0.1" } });
+    expect(res.status).toBe(200);
+    expect((await res.json()).count).toBe(before + 1);
+    // A fresh read (what a reload does) sees the stored value.
+    expect((await (await req("/api/counter")).json()).count).toBe(before + 1);
+  });
+
+  it("rate-limits counter increments per IP", async () => {
+    let limited = false;
+    for (let i = 0; i < 40; i++) {
+      const res = await req("/api/counter", { method: "POST", headers: { "x-forwarded-for": "10.9.0.2" } });
+      if (res.status === 429) { limited = true; break; }
+    }
+    expect(limited).toBe(true);
   });
 
   it("pins a CSP without unsafe-inline or unsafe-eval", () => {

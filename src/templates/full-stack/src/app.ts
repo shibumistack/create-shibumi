@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { serveStatic } from "hono/bun";
-import { desc } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "./db";
-import { notes } from "./db/schema";
+import { counters, notes } from "./db/schema";
 
 // The exact response header set; test/app.test.ts asserts every entry on
 // success, error, API, and static responses. Change both together.
@@ -67,12 +67,47 @@ export function createApp(): Hono {
     return c.json({ notes: rows });
   });
 
+  // The demo counter is the template's single unauthenticated mutation. It is
+  // safe by construction: one shared row, no request body read, value clamped
+  // by the schema CHECK, and an in-memory per-IP rate limit. Treat any other
+  // mutation route as needing authentication first (bun shi add auth).
+  const COUNTER_RATE = 30;
+  const COUNTER_WINDOW_MS = 60_000;
+  const counterHits = new Map<string, { count: number; resetAt: number }>();
+  function counterAllowed(key: string, now = Date.now()): boolean {
+    const entry = counterHits.get(key);
+    if (!entry || entry.resetAt <= now) {
+      if (counterHits.size > 10_000) counterHits.clear();
+      counterHits.set(key, { count: 1, resetAt: now + COUNTER_WINDOW_MS });
+      return true;
+    }
+    entry.count += 1;
+    return entry.count <= COUNTER_RATE;
+  }
+
+  app.get("/api/counter", async (c) => {
+    const row = await db.select().from(counters).where(eq(counters.id, 1)).get();
+    return c.json({ count: row?.value ?? 0 });
+  });
+
+  app.post("/api/counter", async (c) => {
+    const ip = (c.req.header("x-forwarded-for") ?? "local").split(",")[0]!.trim();
+    if (!counterAllowed(ip)) return c.json({ error: "Too many increments; try again in a minute." }, 429);
+    const [row] = await db
+      .update(counters)
+      .set({ value: sql`MIN(${counters.value} + 1, 1000000000)` })
+      .where(eq(counters.id, 1))
+      .returning();
+    return c.json({ count: row?.value ?? 0 });
+  });
+
 const page = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Shibumi web app</title>
+    <title>Full Stack app · shibumi</title>
+    <link rel="stylesheet" href="/public/vendor/shibumi.css" />
     <link rel="stylesheet" href="/public/style.css" />
     <!-- app.js must load before Alpine so the alpine:init listener exists
          when Alpine starts; both defer, so document order is execution order. -->
@@ -80,14 +115,24 @@ const page = `<!doctype html>
     <script src="/public/vendor/alpine-csp-3.16.2.min.js" defer></script>
   </head>
   <body>
-    <main>
-      <h1>It persists.</h1>
-      <p>Hono routes, Zod validation, Alpine behavior, and SQLite with Drizzle under a persistent volume. To get started, open <code>src/app.ts</code>; this page lives there.</p>
-      <section x-data="counter">
+    <main class="scaffold">
+      <p class="masthead"><span class="masthead-mark">渋み</span> shibumi full stack</p>
+      <h1>Full Stack app</h1>
+      <p class="lede">Hono serves the routes, Zod validates every input, Alpine runs the client behavior, and SQLite with Drizzle keeps your data on a volume that survives every deploy.</p>
+      <section class="demo" x-data="counter" aria-label="Alpine counter demo">
         <button x-on:click="inc" type="button">Count</button>
-        <output x-text="count"></output>
+        <output x-text="count">0</output>
+        <span class="demo-hint">stored in SQLite; reloads and deploys keep it</span>
       </section>
-      <p><a href="/api/hello?name=you">/api/hello</a> · <a href="/api/notes">/api/notes</a> · <a href="/healthz">/healthz</a></p>
+      <ul class="endpoints">
+        <li><a href="/api/hello?name=you"><span class="endpoint-path">GET /api/hello</span><span>query validated with Zod</span></a></li>
+        <li><a href="/api/notes"><span class="endpoint-path">GET /api/notes</span><span>Drizzle read from SQLite on the data volume</span></a></li>
+        <li><a href="/healthz"><span class="endpoint-path">GET /healthz</span><span>the check every deploy waits for</span></a></li>
+      </ul>
+      <footer class="colophon">
+        <p>This page lives in <code>src/app.ts</code>. House rules for coding agents are in <code>agents.md</code>. Add features with <code>bun shi add auth</code>.</p>
+        <p class="colophon-links"><a href="https://shibumistack.dev/docs" rel="noreferrer">shibumi docs</a> · <a href="https://server.shibumistack.dev/docs" rel="noreferrer">server docs</a> · <a href="https://shibumistack.dev/docs/cli/extensions" rel="noreferrer">extensions</a></p>
+      </footer>
     </main>
   </body>
 </html>

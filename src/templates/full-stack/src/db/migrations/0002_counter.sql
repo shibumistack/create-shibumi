@@ -1,0 +1,6 @@
+CREATE TABLE counters (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  value INTEGER NOT NULL DEFAULT 0 CHECK (value BETWEEN 0 AND 1000000000)
+);
+
+INSERT INTO counters (id, value) VALUES (1, 0);

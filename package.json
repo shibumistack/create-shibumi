@@ -27,7 +27,8 @@
     "check": "tsc --noEmit",
     "sync:ship": "bun scripts/sync-ship.ts",
     "sync:extensions": "bun scripts/sync-extensions.ts",
-    "verify:packed": "bun scripts/verify-packed.ts"
+    "verify:packed": "bun scripts/verify-packed.ts",
+    "sync:css": "bun scripts/sync-shibumi-css.ts"
   },
   "keywords": [
     "shibumi",

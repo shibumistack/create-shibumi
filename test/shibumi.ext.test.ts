@@ -168,7 +168,7 @@ describe("add auth", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.plan.conflicts).toEqual([]);
-    expect(result.plan.migrationName).toBe("0002_auth.sql");
+    expect(result.plan.migrationName).toBe("0003_auth.sql");
     applyAdd(root, auth, result.plan);
 
     expect(existsSync(join(root, "src", "db", "schema-auth.ts"))).toBe(true);
@@ -185,7 +185,7 @@ describe("add auth", () => {
     expect(dbIndex).toContain('import * as authSchema from "./schema-auth";');
     expect(dbIndex).toContain("drizzle(sqlite, { schema: { ...schema, ...authSchema } });");
 
-    expect(readFileSync(join(root, "src", "db", "migrations", "0002_auth.sql"), "utf8")).toBe(auth.migration!);
+    expect(readFileSync(join(root, "src", "db", "migrations", "0003_auth.sql"), "utf8")).toBe(auth.migration!);
     expect(readFileSync(join(root, "agents", "auth.md"), "utf8")).toBe(auth.agentsFile);
     const agentsMd = readFileSync(join(root, "agents.md"), "utf8");
     expect(agentsMd).toContain("<!-- shibumi:ext:auth -->");
@@ -219,7 +219,7 @@ describe("add auth", () => {
     const run = await cli(root, ["add", "auth", "--dry-run"]);
     expect(run.code).toBe(0);
     expect(run.out).toContain("Dry run: nothing was written.");
-    expect(run.out).toContain("0002_auth.sql");
+    expect(run.out).toContain("0003_auth.sql");
     expect(treeDigest(root)).toBe(digest);
   });
 
@@ -355,16 +355,16 @@ describe("list and safety", () => {
 
   it("keeps a same-named migration whose content differs, on removal", async () => {
     const root = fixture("full-stack");
-    const userMigration = join(root, "src", "db", "migrations", "0002_auth.sql");
+    const userMigration = join(root, "src", "db", "migrations", "0003_auth.sql");
     writeFileSync(userMigration, "CREATE TABLE my_own_auth (id INTEGER);\n");
     expect((await cli(root, ["add", "auth", "--yes"])).code).toBe(0);
-    expect(existsSync(join(root, "src", "db", "migrations", "0003_auth.sql"))).toBe(true);
+    expect(existsSync(join(root, "src", "db", "migrations", "0004_auth.sql"))).toBe(true);
 
     const removal = await cli(root, ["remove", "auth", "--yes"]);
     expect(removal.code).toBe(0);
     expect(removal.out).toContain("content differs");
     expect(readFileSync(userMigration, "utf8")).toBe("CREATE TABLE my_own_auth (id INTEGER);\n");
-    expect(existsSync(join(root, "src", "db", "migrations", "0003_auth.sql"))).toBe(false);
+    expect(existsSync(join(root, "src", "db", "migrations", "0004_auth.sql"))).toBe(false);
   });
 
   it("refuses bundle paths that escape the project root", () => {

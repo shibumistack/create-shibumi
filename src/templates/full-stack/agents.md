@@ -28,7 +28,7 @@ bun run shibumi add <name>  # install an extension (auth, email); --dry-run prev
 
 - Environment goes through `src/env.ts`; request input through Zod at each route.
 - The `SECURITY_HEADERS` set in `src/app.ts` is asserted verbatim by tests on every response class. The CSP allows no inline or eval'd script.
-- Add no unauthenticated mutation endpoints (POST/PUT/PATCH/DELETE); tests fail if a route registers one. Write examples live in tests, which insert through `db` directly.
+- Add no unauthenticated mutation endpoints (POST/PUT/PATCH/DELETE); tests fail if a route registers one. The single exception is the demo `POST /api/counter`: one shared clamped row, no body read, per-IP rate limit. Real write examples live in tests, which insert through `db` directly; anything touching user data needs auth first (`bun shi add auth`).
 
 ## Database
 

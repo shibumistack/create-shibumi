@@ -62,7 +62,8 @@ const page = `<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Shibumi web app</title>
+    <title>Web app · shibumi</title>
+    <link rel="stylesheet" href="/public/vendor/shibumi.css" />
     <link rel="stylesheet" href="/public/style.css" />
     <!-- app.js must load before Alpine so the alpine:init listener exists
          when Alpine starts; both defer, so document order is execution order. -->
@@ -70,14 +71,23 @@ const page = `<!doctype html>
     <script src="/public/vendor/alpine-csp-3.16.2.min.js" defer></script>
   </head>
   <body>
-    <main>
-      <h1>It runs.</h1>
-      <p>Hono routes, Zod validation, Alpine behavior. To get started, open <code>src/app.ts</code>; this page lives there.</p>
-      <section x-data="counter">
+    <main class="scaffold">
+      <p class="masthead"><span class="masthead-mark">渋み</span> shibumi web</p>
+      <h1>Web app</h1>
+      <p class="lede">Hono serves the routes, Zod validates every input, and Alpine runs the client behavior. Deploy to your own server with one command.</p>
+      <section class="demo" x-data="counter" aria-label="Alpine counter demo">
         <button x-on:click="inc" type="button">Count</button>
-        <output x-text="count"></output>
+        <output x-text="count">0</output>
+        <span class="demo-hint">client state without a build step</span>
       </section>
-      <p><a href="/api/hello?name=you">/api/hello</a> · <a href="/healthz">/healthz</a></p>
+      <ul class="endpoints">
+        <li><a href="/api/hello?name=you"><span class="endpoint-path">GET /api/hello</span><span>query validated with Zod</span></a></li>
+        <li><a href="/healthz"><span class="endpoint-path">GET /healthz</span><span>the check every deploy waits for</span></a></li>
+      </ul>
+      <footer class="colophon">
+        <p>This page lives in <code>src/app.ts</code>. House rules for coding agents are in <code>agents.md</code>. Add features with <code>bun shi add email</code>.</p>
+        <p class="colophon-links"><a href="https://shibumistack.dev/docs" rel="noreferrer">shibumi docs</a> · <a href="https://server.shibumistack.dev/docs" rel="noreferrer">server docs</a> · <a href="https://shibumistack.dev/docs/cli/extensions" rel="noreferrer">extensions</a></p>
+      </footer>
     </main>
   </body>
 </html>

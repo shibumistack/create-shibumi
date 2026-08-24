@@ -11,3 +11,11 @@ export const notes = sqliteTable("notes", {
     .notNull()
     .default(sql`(datetime('now'))`),
 });
+
+// One demo counter row (id fixed to 1). The page increments it through
+// POST /api/counter, the only unauthenticated mutation in the template:
+// rate-limited, clamped by a CHECK constraint, and holding no user data.
+export const counters = sqliteTable("counters", {
+  id: integer("id").primaryKey(),
+  value: integer("value").notNull().default(0),
+});

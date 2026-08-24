@@ -29,7 +29,7 @@ describe("routes", () => {
     const res = await req("/");
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain("It runs.");
+    expect(html).toContain("Web app");
     // app.js must come before Alpine so the alpine:init listener registers
     // before Alpine starts.
     expect(html.indexOf("/public/app.js")).toBeLessThan(

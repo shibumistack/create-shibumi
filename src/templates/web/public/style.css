@@ -1,60 +1,144 @@
-:root {
-  color-scheme: light dark;
-  --paper: #f5f0e4;
-  --ink: #1b130f;
-  --accent: #e95f19;
-}
+/* App styles on top of the vendored shibumi.css tokens (public/vendor/).
+   Edit freely; this file is yours. Tokens: --paper --ink --muted --line
+   --accent, type scale --text-xs..--text-2xl, --font-sans/serif/mono. */
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #1b130f;
-    --ink: #f5f0e4;
-    --accent: #ff8648;
-  }
-}
-
-body {
-  margin: 0;
-  background: var(--paper);
-  color: var(--ink);
-  font-family: system-ui, sans-serif;
-  font-size: 1.125rem;
-  line-height: 1.6;
-}
-
-main {
-  max-width: 40rem;
+.scaffold {
+  max-width: 40.625rem;
   margin: 0 auto;
-  padding: 4rem 1.5rem;
+  padding: clamp(3rem, 9vh, 6.5rem) 1.5rem 4rem;
 }
 
-h1 {
-  font-family: Georgia, "Times New Roman", serif;
-  font-weight: 500;
+.masthead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0 0 3.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  letter-spacing: 0.04em;
 }
 
-a {
-  color: inherit;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--accent) 30%, transparent);
-  text-underline-offset: 0.18em;
+.masthead-mark {
+  color: var(--accent);
+  font-size: var(--text-md);
 }
 
-a:hover {
-  text-decoration-color: var(--accent);
+.scaffold h1 {
+  margin: 0 0 0.75rem;
+  font-size: clamp(2.6rem, 7vw, 3.8rem);
+  font-weight: 450;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
 }
 
-button {
-  font: inherit;
-  padding: 0.4rem 1rem;
+.lede {
+  margin: 0 0 3rem;
+  max-width: 34rem;
+  color: var(--muted);
+  font-size: var(--text-lg);
+  line-height: 1.55;
+}
+
+.demo {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 3.25rem;
+}
+
+.demo button {
+  font: 500 var(--text-md) var(--font-sans);
+  padding: 0.5rem 1.3rem;
   border: 1px solid var(--ink);
+  border-radius: 0.35rem;
   background: transparent;
   color: inherit;
-  border-radius: 4px;
   cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease;
 }
 
-output {
-  margin-left: 0.75rem;
+.demo button:hover,
+.demo button:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.demo output {
+  min-width: 2ch;
+  font-size: var(--text-lg);
   font-variant-numeric: tabular-nums;
+}
+
+.demo-hint {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.endpoints {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+main .endpoints a {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 0.9rem 0.25rem;
+  border-bottom: 1px solid var(--line);
+  text-decoration: none;
+  text-decoration-color: transparent;
+  transition: background 160ms ease;
+}
+
+main .endpoints a:hover,
+main .endpoints a:focus-visible {
+  background: var(--faint);
+}
+
+.endpoint-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+/* Inline code as rounded chips on the faint layer. */
+.scaffold code {
+  padding: 0.12em 0.42em;
+  border-radius: 0.35rem;
+  background: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+
+main .endpoints a:hover .endpoint-path {
+  color: var(--accent);
+}
+
+.endpoints span {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.colophon {
+  margin-top: 3.5rem;
+}
+
+.colophon p {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+}
+
+.colophon code {
+  color: var(--ink);
+}
+
+.colophon-links {
+  font-size: var(--text-sm);
 }
