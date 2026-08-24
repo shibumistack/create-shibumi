@@ -70,11 +70,11 @@ async function runShipSetup(dest: string, label: string): Promise<void> {
 /**
  * `bun create shibumi .`: vendor the Ship client into the project that is
  * already here instead of scaffolding a new one. Nothing that exists is
- * overwritten, and no git or install step runs.
+ * overwritten or reinterpreted, and git is never touched.
  */
 async function adoptExisting(args: ParsedArgs): Promise<void> {
   const root = process.cwd();
-  const entries = readdirSync(root).filter((entry) => entry !== ".git");
+  const entries = readdirSync(root, { withFileTypes: true }).filter((entry) => entry.name !== ".git");
   if (entries.length === 0) {
     process.stderr.write(
       `Nothing to adopt: this directory is empty.\nRun bun create shibumi <name> to scaffold a new project.\n`
@@ -90,16 +90,34 @@ async function adoptExisting(args: ParsedArgs): Promise<void> {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
   };
+  // Adopt generates the static image and only that. A start script means
+  // something runs in the container, which is ship:setup's job: it asks
+  // server-or-static and writes the matching files.
+  if (pkg.scripts?.start) {
+    process.stderr.write(
+      [
+        `This looks like a server app (package.json has a start script).`,
+        `Next: run "bun ship:setup" here; it generates server deployment files.`,
+        `Shipping a static build from a project with a start script? Run "bun ship:setup --static --output-dir <dir>".`,
+        "",
+      ].join("\n")
+    );
+    process.exit(2);
+  }
   const detected = detectBuildOutput({
     dependencies: { ...pkg.dependencies, ...pkg.devDependencies },
-    files: entries,
+    files: entries.filter((entry) => entry.isFile()).map((entry) => entry.name),
+    directories: entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name),
   });
-  // Adopt generates the static image. A server app's dist/ looks exactly like
-  // a build directory, so a start script with no build tool behind it goes to
-  // ship:setup instead, which owns server deployment files.
-  if (pkg.scripts?.start && detected?.source !== "framework") {
+  // A flat site at the project root has no directory to serve, and the image
+  // never packages the whole checkout.
+  if (!detected && entries.some((entry) => entry.isFile() && entry.name === "index.html")) {
     process.stderr.write(
-      `This looks like a server app (package.json has a start script).\nRun "bun ship:setup" here instead: it generates server deployment files and asks nothing about static output.\n`
+      [
+        `A static image serves one directory, and index.html is at the project root.`,
+        `Next: move the site into public/ (mkdir public && git mv index.html public/), then run bun create shibumi . again.`,
+        "",
+      ].join("\n")
     );
     process.exit(2);
   }
@@ -177,6 +195,26 @@ async function adoptExisting(args: ParsedArgs): Promise<void> {
   if (result.scripts.length > 0) log.success(`Added scripts: ${result.scripts.join(", ")}`);
   if (result.kept.length > 0) log.info(`Left untouched: ${result.kept.join(", ")}`);
 
+  // The vendored client imports @clack/prompts. A project that already has a
+  // node_modules gets no auto-install, so declaring the dependency is not
+  // enough: every interactive ship command would die on the missing import.
+  let installed = true;
+  if (result.dependency && args.install) {
+    const s = spinner();
+    s.start("Installing @clack/prompts");
+    const proc = Bun.spawn(["bun", "add", "--dev", "@clack/prompts"], {
+      cwd: root,
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    installed = (await proc.exited) === 0;
+    s.stop(installed ? "Installed @clack/prompts" : "Could not install @clack/prompts");
+  } else if (result.dependency) {
+    installed = false;
+  }
+  if (!installed) log.warn("Run bun install before bun ship:setup; the ship client imports @clack/prompts.");
+
   let deployNow = false;
   if (interactive) {
     const answer = await confirm({
@@ -230,7 +268,9 @@ async function main(): Promise<void> {
   const interactive = !args.yes;
   if (interactive && !process.stdin.isTTY) {
     process.stderr.write(
-      `No interactive terminal. Use --yes with a project name and --template.\n`
+      args.adopt
+        ? `No interactive terminal. Run "bun create shibumi . --yes" to adopt this project with its detected build directory.\n`
+        : `No interactive terminal. Use --yes with a project name and --template.\n`
     );
     process.exit(2);
   }

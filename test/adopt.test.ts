@@ -17,8 +17,10 @@ afterEach(() => {
   rmSync(work, { recursive: true, force: true });
 });
 
+// --no-install keeps the registry out of the unit tests; verify:packed covers
+// the real `bun add --dev @clack/prompts` from the packed tarball.
 function adopt(args: string[] = []) {
-  const proc = Bun.spawnSync(["bun", CLI, ".", "--yes", ...args], {
+  const proc = Bun.spawnSync(["bun", CLI, ".", "--yes", "--no-install", ...args], {
     cwd: work,
     stdin: "ignore",
     stdout: "pipe",
@@ -31,11 +33,23 @@ function adopt(args: string[] = []) {
   };
 }
 
+function git(...args: string[]) {
+  return Bun.spawnSync(["git", "-c", "user.email=t@e.st", "-c", "user.name=Test", ...args], {
+    cwd: work,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+}
+
 function writePackage(pkg: object): void {
   writeFileSync(join(work, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
 }
 
-function readPackage(): { scripts: Record<string, string>; devDependencies: Record<string, string> } {
+function readPackage(): {
+  name?: string;
+  scripts: Record<string, string>;
+  devDependencies: Record<string, string>;
+} {
   return JSON.parse(readFileSync(join(work, "package.json"), "utf8"));
 }
 
@@ -59,13 +73,16 @@ describe("detectBuildOutput", () => {
   });
 
   it("falls back to a build directory on disk, then public/", () => {
-    expect(detectBuildOutput({ files: ["_site", "Gemfile"] })).toEqual({
+    expect(detectBuildOutput({ files: ["Gemfile"], directories: ["_site"] })).toEqual({
       framework: "existing build output",
       outputDir: "_site",
       source: "directory",
     });
-    expect(detectBuildOutput({ files: ["public", "index.php"] })?.outputDir).toBe("public");
-    expect(detectBuildOutput({ files: ["index.html"] })).toBeUndefined();
+    expect(detectBuildOutput({ files: ["index.php"], directories: ["public"] })?.outputDir).toBe("public");
+  });
+
+  it("never treats a plain file as a build directory", () => {
+    expect(detectBuildOutput({ files: ["dist", "public", "index.html"], directories: [] })).toBeUndefined();
   });
 });
 
@@ -99,21 +116,36 @@ describe("bun create shibumi .", () => {
     expect(pkg.scripts["ship:webhook"]).toBe("bun scripts/ship.ts --webhook");
     expect(pkg.scripts.build).toBe("astro build");
     // The client imports @clack/prompts, so an adopted project must declare it.
-    expect(pkg.devDependencies["@clack/prompts"]).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(pkg.devDependencies["@clack/prompts"]).toBeTruthy();
+    // Declared but not installed under --no-install: say so rather than let
+    // the first interactive ship command die on the missing import.
+    expect(r.stdout).toContain("Run bun install before bun ship:setup");
     // Adopting is not scaffolding: no git init, no install, no template.
     expect(existsSync(join(work, ".git"))).toBe(false);
     expect(existsSync(join(work, "node_modules"))).toBe(false);
     expect(existsSync(join(work, "agents.md"))).toBe(false);
   });
 
-  it("never overwrites a file the project already owns", () => {
-    writePackage({ name: "mine", scripts: { build: "vite build", ship: "echo mine" }, devDependencies: { vite: "6" } });
+  it("refuses when deployment files already exist", () => {
+    writePackage({ name: "mine", scripts: { build: "vite build" }, devDependencies: { vite: "6" } });
     writeFileSync(join(work, "Dockerfile"), "# mine\n");
+    const r = adopt();
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("Dockerfile, which already exist and may package or run something else");
+    expect(r.stderr).toContain("Next: remove or rename them");
+    expect(readFileSync(join(work, "Dockerfile"), "utf8")).toBe("# mine\n");
+    // Refusing means refusing: no compose file pointing at a foreign image.
+    expect(existsSync(join(work, "compose.yaml"))).toBe(false);
+    expect(existsSync(join(work, "scripts", "ship.ts"))).toBe(false);
+    expect(readFileSync(join(work, "package.json"), "utf8")).not.toContain("ship:setup");
+  });
+
+  it("keeps a ship client the project already vendored", () => {
+    writePackage({ name: "mine", scripts: { build: "vite build", ship: "echo mine" }, devDependencies: { vite: "6" } });
     mkdirSync(join(work, "scripts"), { recursive: true });
     writeFileSync(join(work, "scripts", "ship.ts"), "// mine\n");
     const r = adopt();
     expect(r.code).toBe(0);
-    expect(readFileSync(join(work, "Dockerfile"), "utf8")).toBe("# mine\n");
     expect(readFileSync(join(work, "scripts", "ship.ts"), "utf8")).toBe("// mine\n");
     expect(readPackage().scripts.ship).toBe("echo mine");
     expect(r.stdout).toContain("Left untouched");
@@ -131,8 +163,11 @@ describe("bun create shibumi .", () => {
     mkdirSync(join(work, "public"));
     writeFileSync(join(work, "public", "index.html"), "<!doctype html>\n");
     writeFileSync(join(work, "Gemfile"), "gem 'jekyll'\n");
+    git("init", "-q", ".");
+    git("add", "-A");
+    git("commit", "-q", "-m", "site");
     expect(adopt().code).toBe(0);
-    const pkg = readPackage() as { name?: string; scripts: Record<string, string> };
+    const pkg = readPackage();
     expect(pkg.scripts["ship:setup"]).toBe(
       "bun scripts/ship.ts --setup --static --output-dir public --no-spa"
     );
@@ -142,14 +177,13 @@ describe("bun create shibumi .", () => {
     expect(readFileSync(join(work, ".dockerignore"), "utf8")).toBe("*\n!public\n");
   });
 
-  it("sends a server app to ship:setup instead of generating a static image", () => {
-    writePackage({ name: "api", scripts: { start: "bun dist/server.js", build: "bun build src/server.ts --outdir dist" } });
-    mkdirSync(join(work, "dist"));
+  it("refuses uncommitted output when there is no build script", () => {
+    mkdirSync(join(work, "public"));
+    writeFileSync(join(work, "public", "index.html"), "<!doctype html>\n");
     const r = adopt();
-    expect(r.code).toBe(2);
-    expect(r.stderr).toContain("This looks like a server app");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("public/ must be committed so shipped images match the exact commit");
     expect(existsSync(join(work, "compose.yaml"))).toBe(false);
-    expect(existsSync(join(work, "scripts", "ship.ts"))).toBe(false);
   });
 
   it("refuses an empty directory with exit 2", () => {
@@ -158,12 +192,31 @@ describe("bun create shibumi .", () => {
     expect(r.stderr).toContain("Nothing to adopt: this directory is empty.");
   });
 
-  it("stops with exit 1 when nothing is detectable non-interactively", () => {
+  it("sends a flat site at the project root to public/", () => {
     writeFileSync(join(work, "index.html"), "<!doctype html>\n");
     const r = adopt();
-    expect(r.code).toBe(1);
-    expect(r.stderr).toContain("Could not detect the built site directory.");
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("A static image serves one directory");
+    expect(r.stderr).toContain("mkdir public && git mv index.html public/");
     expect(existsSync(join(work, "compose.yaml"))).toBe(false);
+  });
+
+  it("sends any project with a start script to ship:setup", () => {
+    // Bun server plus a Vite frontend: the framework signal says dist/, but
+    // something still has to run in the container.
+    writePackage({
+      name: "api",
+      scripts: { start: "bun dist/server.js", build: "vite build" },
+      devDependencies: { vite: "6" },
+    });
+    mkdirSync(join(work, "dist"));
+    const r = adopt();
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("This looks like a server app");
+    expect(r.stderr).toContain(`Next: run "bun ship:setup" here`);
+    expect(r.stderr).toContain("--static --output-dir <dir>");
+    expect(existsSync(join(work, "compose.yaml"))).toBe(false);
+    expect(existsSync(join(work, "scripts", "ship.ts"))).toBe(false);
   });
 
   it("refuses a template with an existing project", () => {
@@ -171,5 +224,12 @@ describe("bun create shibumi .", () => {
     const r = adopt(["--template", "static"]);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain("--template does not apply to an existing project");
+  });
+
+  it("refuses to prompt without a terminal", () => {
+    writePackage({ name: "app", devDependencies: { vite: "6" } });
+    const proc = Bun.spawnSync(["bun", CLI, "."], { cwd: work, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    expect(proc.exitCode).toBe(2);
+    expect(proc.stderr.toString()).toContain("bun create shibumi . --yes");
   });
 });

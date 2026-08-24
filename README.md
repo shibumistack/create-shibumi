@@ -38,7 +38,9 @@ Creation is atomic: the project is built in a temporary sibling directory and re
 
 ## Adopting an existing project
 
-`bun create shibumi .` detects where your build lands (Astro and Vite write `dist/`, Eleventy `_site/`, an exported Next.js `out/`, plain files `public/`), vendors `scripts/ship.ts`, adds the `ship` scripts, and generates a `Dockerfile`, `compose.yaml`, and `.dockerignore` for the static image. Files that already exist are left alone, git is not touched, and nothing is installed. Finish with `bun ship:setup`.
+`bun create shibumi .` detects where your build lands (Astro and Vite write `dist/`, Eleventy `_site/`, an exported Next.js `out/`, plain files `public/`), vendors `scripts/ship.ts`, adds the `ship` scripts, installs the one dependency that client needs, and generates a `Dockerfile`, `compose.yaml`, and `.dockerignore` for the static image. Git is never touched, and `--no-install` skips the install.
+
+Two cases stop the run instead of guessing. Deployment files that already exist are never reinterpreted: a `compose.yaml` carrying Shibumi's static labels beside somebody else's `Dockerfile` would deploy the wrong artifact. A `package.json` with a `start` script belongs to `bun ship:setup`, which generates server deployment files. Finish with `bun ship:setup`.
 
 ## Guidance for coding agents
 

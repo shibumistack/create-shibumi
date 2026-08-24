@@ -385,8 +385,11 @@ function main(): void {
   mkdirSync(adoptDir, { recursive: true });
   writeFileSync(
     join(adoptDir, "package.json"),
-    `${JSON.stringify({ name: "adopt-astro", private: true, scripts: { build: "astro build" }, dependencies: { astro: "7.2.4" } }, null, 2)}\n`
+    `${JSON.stringify({ name: "adopt-astro", private: true, scripts: { build: "astro build" } }, null, 2)}\n`
   );
+  // Detected from the config file, so the fixture installs the client's own
+  // dependency and nothing else.
+  writeFileSync(join(adoptDir, "astro.config.mjs"), "export default {};\n");
   must(adoptStep, [cli, ".", "--yes"], adoptDir);
   for (const artifact of ["scripts/ship.ts", "Dockerfile", "compose.yaml", ".dockerignore"]) {
     if (!existsSync(join(adoptDir, artifact))) fail(adoptStep, `${artifact} missing after adopt`);
@@ -400,6 +403,15 @@ function main(): void {
   }
   if (!adoptPkg.devDependencies?.["@clack/prompts"]) {
     fail(adoptStep, "adopt did not declare the @clack/prompts dependency the client imports");
+  }
+  // Declaring is not enough: a project with its own node_modules gets no
+  // auto-install, so every interactive ship command would die on the import.
+  if (!existsSync(join(adoptDir, "node_modules", "@clack", "prompts", "package.json"))) {
+    fail(adoptStep, "adopt did not install @clack/prompts");
+  }
+  const shipHelp = run(["bun", "scripts/ship.ts", "--off"], adoptDir);
+  if (!`${shipHelp.stdout}${shipHelp.stderr}`.includes("--off requires --webhook")) {
+    fail(adoptStep, `vendored client is not runnable in the adopted project:\n${shipHelp.stdout}${shipHelp.stderr}`);
   }
   if (existsSync(join(adoptDir, ".git"))) fail(adoptStep, "adopt initialized git");
   assertNoLeaks(adoptStep, adoptDir, forbidden);

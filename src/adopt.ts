@@ -24,10 +24,13 @@ export interface DetectedOutput {
 export function detectBuildOutput(input: {
   dependencies?: Record<string, unknown>;
   files: string[];
+  directories?: string[];
 }): DetectedOutput | undefined {
   const dependencies = input.dependencies ?? {};
   const dep = (name: string) => name in dependencies;
   const file = (name: string) => input.files.includes(name);
+  // A plain file named dist must never satisfy a directory fallback.
+  const directory = (name: string) => (input.directories ?? []).includes(name);
   const config = (base: string) =>
     ["js", "mjs", "cjs", "ts"].some((extension) => file(`${base}.${extension}`));
 
@@ -39,9 +42,9 @@ export function detectBuildOutput(input: {
   if (dep("next") || config("next.config")) return framework("Next.js", "out");
   if (dep("vite") || config("vite.config")) return framework("Vite", "dist");
   for (const candidate of ["dist", "_site", "out", "build"]) {
-    if (file(candidate)) return { framework: "existing build output", outputDir: candidate, source: "directory" };
+    if (directory(candidate)) return { framework: "existing build output", outputDir: candidate, source: "directory" };
   }
-  if (file("public")) return { framework: "plain files", outputDir: "public", source: "directory" };
+  if (directory("public")) return { framework: "plain files", outputDir: "public", source: "directory" };
   return undefined;
 }
 
@@ -124,31 +127,48 @@ export interface AdoptResult {
   written: string[];
   kept: string[];
   scripts: string[];
+  dependency: boolean;
+}
+
+function tracked(root: string, path: string): boolean {
+  const listed = Bun.spawnSync(["git", "ls-files", "--", path], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  return listed.exitCode === 0 && listed.stdout.toString().trim().length > 0;
 }
 
 /**
  * Vendor the Ship client into an existing project instead of scaffolding a new
- * one. Files that already exist are never rewritten: they are reported as kept
- * so the transcript says what this project already owned.
+ * one. Refuses rather than reinterpreting a project's own packaging: deployment
+ * files that already exist may build or run something else entirely.
  */
 export async function adoptProject(opts: AdoptOptions): Promise<AdoptResult> {
   const problem = opts.ship.staticOutputDirProblem(opts.outputDir);
   if (problem) throw new AdoptError(problem, 2);
 
+  const templates = opts.ship.staticDeploymentFileTemplates({
+    outputDir: opts.outputDir,
+    buildScript: opts.buildScript,
+    spa: opts.spa,
+  });
+  // Same refusal ship:setup makes: a compose file carrying shibumi static
+  // labels next to somebody else's Dockerfile deploys the wrong artifact.
+  const targets = [...Object.keys(templates), ...(opts.spa ? ["scripts/static-server.ts"] : [])];
+  const conflicts = targets.filter((name) => existsSync(join(opts.root, name)));
+  if (conflicts.length > 0) {
+    throw new AdoptError(
+      `Adopting would generate ${conflicts.join(", ")}, which already exist and may package or run something else.\n\nNext: remove or rename them, then run bun create shibumi . again.`
+    );
+  }
+  // Without a build script the image can only contain what the commit
+  // contains, so the output has to be in git already.
+  if (!opts.buildScript && !tracked(opts.root, opts.outputDir)) {
+    throw new AdoptError(
+      `Without a build script, ${opts.outputDir}/ must be committed so shipped images match the exact commit.\n\nNext: commit ${opts.outputDir}/, or add a build script to package.json, then run bun create shibumi . again.`
+    );
+  }
+
   const templatesDir = opts.templatesDir ?? DEFAULT_TEMPLATES_DIR;
   const written: string[] = [];
   const kept: string[] = [];
-
-  const write = (relative: string, contents: string): void => {
-    const target = join(opts.root, relative);
-    if (existsSync(target)) {
-      kept.push(relative);
-      return;
-    }
-    mkdirSync(join(target, ".."), { recursive: true });
-    writeFileSync(target, contents, { mode: 0o644 });
-    written.push(relative);
-  };
 
   if (existsSync(join(opts.root, "scripts", "ship.ts"))) {
     kept.push("scripts/ship.ts");
@@ -161,18 +181,18 @@ export async function adoptProject(opts: AdoptOptions): Promise<AdoptResult> {
   // Script-less generators (Jekyll) have no package.json; the ship commands
   // and the client's own dependency need one.
   const packagePath = join(opts.root, "package.json");
-  const pkg = (existsSync(packagePath)
-    ? JSON.parse(readFileSync(packagePath, "utf8"))
-    : {
+  const before = existsSync(packagePath) ? readFileSync(packagePath, "utf8") : undefined;
+  const pkg = (before === undefined
+    ? {
         name: opts.root.split("/").pop()?.toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "app",
         private: true,
         type: "module",
-      }) as {
+      }
+    : JSON.parse(before)) as {
     scripts?: Record<string, string>;
     devDependencies?: Record<string, string>;
     dependencies?: Record<string, string>;
   };
-  if (!existsSync(packagePath)) written.push("package.json");
 
   const scripts = pkg.scripts ?? {};
   const added: string[] = [];
@@ -185,22 +205,27 @@ export async function adoptProject(opts: AdoptOptions): Promise<AdoptResult> {
   }
   pkg.scripts = scripts;
   // The vendored client imports @clack/prompts; an adopted project with an
-  // empty node_modules disables auto-install, so the dependency is declared.
-  if (!pkg.dependencies?.["@clack/prompts"] && !pkg.devDependencies?.["@clack/prompts"]) {
-    pkg.devDependencies = { ...pkg.devDependencies, "@clack/prompts": CLACK_VERSION };
+  // existing node_modules gets no auto-install, so the dependency is declared
+  // and installed.
+  const dependency = !pkg.dependencies?.["@clack/prompts"] && !pkg.devDependencies?.["@clack/prompts"];
+  if (dependency) pkg.devDependencies = { ...pkg.devDependencies, "@clack/prompts": CLACK_VERSION };
+  const after = `${JSON.stringify(pkg, null, 2)}\n`;
+  if (after !== before) {
+    writeFileSync(packagePath, after, { mode: 0o644 });
+    written.push("package.json");
+  } else {
+    kept.push("package.json");
   }
-  writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`, { mode: 0o644 });
 
-  for (const [name, contents] of Object.entries(
-    opts.ship.staticDeploymentFileTemplates({
-      outputDir: opts.outputDir,
-      buildScript: opts.buildScript,
-      spa: opts.spa,
-    })
-  )) {
-    write(name, contents);
+  for (const [name, contents] of Object.entries(templates)) {
+    writeFileSync(join(opts.root, name), contents, { mode: 0o644 });
+    written.push(name);
   }
-  if (opts.spa) write("scripts/static-server.ts", opts.ship.staticServerSource(opts.outputDir));
+  if (opts.spa) {
+    mkdirSync(join(opts.root, "scripts"), { recursive: true });
+    writeFileSync(join(opts.root, "scripts", "static-server.ts"), opts.ship.staticServerSource(opts.outputDir), { mode: 0o644 });
+    written.push("scripts/static-server.ts");
+  }
 
-  return { written, kept, scripts: added };
+  return { written, kept, scripts: added, dependency };
 }
