@@ -145,3 +145,18 @@
     margin-top: 0;
   }
 }
+
+/* Post images: full column width, soft corners, credit line stays quiet. */
+article img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 0.6rem;
+}
+
+article small {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
