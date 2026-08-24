@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "0.2.7",
   "extensions": [
     {
       "name": "admin",
@@ -18,5 +18,5 @@
       "version": "1.0.1"
     }
   ],
-  "sha256": "10386d9e6db61626780e85ef6bcc423e88402606b8ce9baa2c222e61cd32f134"
+  "sha256": "587bee44ee11f76e4946bc8248d9abe46ad3536e308ac57a97d2215bec061d2e"
 }

@@ -826,6 +826,6 @@ if (import.meta.main) {
     success: (line) => log.success(line),
   };
   const code = await runCli(process.argv.slice(2), process.cwd(), io, true);
-  outro(code === 0 ? `Docs: ${accent("https://shibumistack.dev/extensions")}` : "Stopped; see the messages above.");
+  outro(code === 0 ? `Docs: ${accent("https://shibumistack.dev/docs/cli/extensions")}` : "Stopped; see the messages above.");
   process.exit(code);
 }
