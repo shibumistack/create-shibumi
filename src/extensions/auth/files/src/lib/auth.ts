@@ -217,7 +217,21 @@ export function nodeEnv(): string | undefined {
 // APP_ORIGIN when set; without it (development) the same-origin default stays.
 export function csrfOptions(): { origin?: string } {
   const appOrigin = process.env["APP_ORIGIN"];
-  return appOrigin ? { origin: new URL(appOrigin).origin } : {};
+  if (!appOrigin) {
+    // Unset in production would fall back to the same-origin default and 403
+    // every form POST behind the proxy. Fail loud at boot instead.
+    if (nodeEnv() === "production") {
+      throw new Error("APP_ORIGIN must be set in production (bun ship:env set APP_ORIGIN=https://your-domain, then bun ship).");
+    }
+    return {};
+  }
+  const url = new URL(appOrigin);
+  // A non-http(s) URL serializes to origin "null", which an attacker can
+  // match from a sandboxed iframe (Origin: null). Refuse it.
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("APP_ORIGIN must be an http(s) URL.");
+  }
+  return { origin: url.origin };
 }
 
 export async function deliverLoginLink(email: string, url: string): Promise<void> {

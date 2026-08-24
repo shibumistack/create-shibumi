@@ -382,3 +382,27 @@ describe("csrfOptions", () => {
     expect(csrfOptions()).toEqual({});
   });
 });
+
+describe("csrfOptions hardening", () => {
+  it("rejects non-http(s) APP_ORIGIN (origin would serialize to null)", async () => {
+    process.env.APP_ORIGIN = "ftp://app.example.com";
+    try {
+      const { csrfOptions } = await import("../src/lib/auth");
+      expect(() => csrfOptions()).toThrow("http(s)");
+    } finally {
+      delete process.env.APP_ORIGIN;
+    }
+  });
+
+  it("fails loud when APP_ORIGIN is unset in production", async () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    delete process.env.APP_ORIGIN;
+    try {
+      const { csrfOptions } = await import("../src/lib/auth");
+      expect(() => csrfOptions()).toThrow("APP_ORIGIN must be set");
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+});
