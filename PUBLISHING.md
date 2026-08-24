@@ -1,6 +1,8 @@
 # Publishing create-shibumi
 
-Manual, owner-run. The package is `"private": true` and stays that way until the publish commit; every gate below is a hard block. Nothing here is automated on purpose: publishing is the one irreversible step.
+Manual, owner-run. Every gate below is a hard block. Nothing here is automated on purpose: publishing is the one irreversible step.
+
+First release shipped 2026-08-24: `create-shibumi@0.2.0`, tag `v0.2.0`, registry tarball sha256 `a5b090bdfd44785133f6b345137423a106cee70cdc7b2a9c7bfa5fdd801a3fd3`. The `"private": true` guard was removed in that release commit; the pack allowlist and CI gates are now the accidental-publish protection. Compatibility rule going forward: the vendored Ship client and the published `shibumi-server` npm release must agree (Ship v45 requires `shis env`, server >= 0.10.6).
 
 ## Preconditions (all green)
 
@@ -13,7 +15,7 @@ Manual, owner-run. The package is `"private": true` and stays that way until the
 ## Publish steps
 
 1. Confirm npm identity and 2FA: `npm whoami`, account has publish rights to `create-shibumi`, 2FA enabled.
-2. In the publish commit only, remove `"private": true` from `package.json`. Do not push other changes in this commit.
+2. Bump the version in `package.json` in its own release commit. Do not push other changes in this commit.
 3. `npm pack --dry-run` and review the file list one more time (the CI allowlist already enforces it, but look).
 4. Prefer npm trusted publishing (OIDC from a tagged CI release) over a long-lived token. If publishing locally, use an automation token scoped to this package and revoke it after.
 5. Publish under a prerelease dist-tag, never straight to `latest`:
@@ -36,5 +38,5 @@ Manual, owner-run. The package is `"private": true` and stays that way until the
 
 ## Deploy-side items still owner-gated (not blocking npm publish)
 
-- **VPS dogfood matrix.** The generated artifact is container-verified on linux/amd64 (CI) and arm64 (local shibumistack.dev ships), and a full-stack + auth image was run end to end locally (health, register, login, session, no token in logs, non-root, persistence across replacement). The full `shibumi-server` VPS leg (setup, image upload, deploy, status, logs, rollback) still needs a disposable app with DNS provisioned and, for amd64, a second host. `alpha` is arm64 only.
+- **VPS dogfood matrix.** Done on arm64 (2026-08-24, kunstfy.com on alpha): DNS, setup, `ship:env`, image upload, deploy, health, auth/uploads/admin live, rollback with env retention, remove and re-add. The dogfood caught and fixed the CSRF-behind-TLS-proxy bug before this release. Still open: an amd64 host for the same live leg (CI covers the amd64 container path).
 - **Ship-client trust-model findings** (in the vendored `scripts/ship.ts`, owner-owned, not create-shibumi code): the server install is `curl -fsSL https://shibumistack.dev/install/server | bash`; `bun ship:update` fetches and runs unsigned TypeScript from one origin; `ssh()` passes remote arguments to a login shell that reparses them. These are deliberate self-hosted-tool trust decisions; if you want them hardened (signed install manifest, pinned digests, POSIX-quoted remote args), that is a Ship release, not a create-shibumi one.
