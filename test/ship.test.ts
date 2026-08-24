@@ -73,17 +73,13 @@ describe("ship:webhook", () => {
     expect(runShip(["--webhook", "--setup"]).output).toContain("choose only one ship action");
   });
 
-  it("drops the trigger flag with its question", () => {
+  it("drops the trigger flag", () => {
+    // The question it used to open, and the webhook it used to create, are
+    // covered behaviourally in test/setup.plan.test.ts: a whole setup run
+    // asks neither and never calls GitHub about hooks.
     expect(runShip(["--setup", "--trigger", "github-push"]).output).toContain(
       "unknown ship option: --trigger"
     );
-    expect(vendored).not.toContain("How do you want to deploy?");
-  });
-
-  it("keeps webhook creation out of the default setup path", () => {
-    const setupBody = /\nasync function setup\(([\s\S]*?)\n}\n/.exec(vendored)?.[1] ?? "";
-    expect(setupBody).not.toContain("ensureWebhook");
-    expect(setupBody).not.toContain("disableWebhook");
   });
 
   it("is wired into every template that ships", () => {
