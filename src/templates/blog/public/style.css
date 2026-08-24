@@ -212,10 +212,9 @@ article small {
   border-color: var(--accent);
 }
 
-article code {
+article :not(pre) > code {
   padding: 0.12em 0.42em;
   border-radius: 0.35rem;
   background: color-mix(in srgb, var(--ink) 6%, transparent);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.85em;
 }
