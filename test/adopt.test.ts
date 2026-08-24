@@ -180,10 +180,38 @@ describe("bun create shibumi .", () => {
   it("refuses uncommitted output when there is no build script", () => {
     mkdirSync(join(work, "public"));
     writeFileSync(join(work, "public", "index.html"), "<!doctype html>\n");
+    git("init", "-q", "-b", "main", ".");
     const r = adopt();
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("public/ must be committed so shipped images match the exact commit");
+    expect(r.stderr).toContain("Next: commit public/");
     expect(existsSync(join(work, "compose.yaml"))).toBe(false);
+  });
+
+  it("says how to start a repository when there is none", () => {
+    mkdirSync(join(work, "public"));
+    writeFileSync(join(work, "public", "index.html"), "<!doctype html>\n");
+    const r = adopt();
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain(`Next: git init && git add public && git commit -m "Add site"`);
+  });
+
+  it("leaves a foreign lockfile alone and prints its own install command", () => {
+    writePackage({ name: "app", scripts: { build: "vite build" }, devDependencies: { vite: "6" } });
+    writeFileSync(join(work, "package-lock.json"), `{ "lockfileVersion": 3 }\n`);
+    const r = adopt();
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("This project has its own lockfile");
+    expect(r.stdout).toMatch(/npm install --save-dev @clack\/prompts@\d+\.\d+\.\d+/);
+    // No second lockfile, and the pinned version stays pinned.
+    expect(existsSync(join(work, "bun.lock"))).toBe(false);
+    expect(readPackage().devDependencies["@clack/prompts"]).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it("uses pnpm's command in a pnpm project", () => {
+    writePackage({ name: "app", scripts: { build: "vite build" }, devDependencies: { vite: "6" } });
+    writeFileSync(join(work, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    expect(adopt().stdout).toContain("pnpm add -D @clack/prompts@");
   });
 
   it("refuses an empty directory with exit 2", () => {

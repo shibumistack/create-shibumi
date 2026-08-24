@@ -3,7 +3,13 @@
 import { cancel, confirm, intro, isCancel, log, outro, select, spinner, text } from "@clack/prompts";
 import { existsSync, readFileSync, readdirSync } from "fs";
 import { join } from "path";
-import { AdoptError, adoptProject, detectBuildOutput, loadShipStatic } from "./adopt";
+import {
+  AdoptError,
+  adoptProject,
+  dependencyInstall,
+  detectBuildOutput,
+  loadShipStatic,
+} from "./adopt";
 import {
   HELP_TEXT,
   bunVersionProblem,
@@ -198,22 +204,30 @@ async function adoptExisting(args: ParsedArgs): Promise<void> {
   // The vendored client imports @clack/prompts. A project that already has a
   // node_modules gets no auto-install, so declaring the dependency is not
   // enough: every interactive ship command would die on the missing import.
-  let installed = true;
-  if (result.dependency && args.install) {
-    const s = spinner();
-    s.start("Installing @clack/prompts");
-    const proc = Bun.spawn(["bun", "add", "--dev", "@clack/prompts"], {
-      cwd: root,
-      stdin: "ignore",
-      stdout: "ignore",
-      stderr: "pipe",
-    });
-    installed = (await proc.exited) === 0;
-    s.stop(installed ? "Installed @clack/prompts" : "Could not install @clack/prompts");
-  } else if (result.dependency) {
-    installed = false;
+  if (result.dependency) {
+    const install = dependencyInstall(
+      entries.filter((entry) => entry.isFile()).map((entry) => entry.name)
+    );
+    if (install.manual) {
+      log.warn(
+        `This project has its own lockfile, so nothing was installed here.\nNext: ${install.manual}, then bun ship:setup.`
+      );
+    } else if (!args.install) {
+      log.warn("Run bun install before bun ship:setup; the ship client imports @clack/prompts.");
+    } else {
+      const s = spinner();
+      s.start("Installing @clack/prompts");
+      const proc = Bun.spawn(install.command, {
+        cwd: root,
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      const ok = (await proc.exited) === 0;
+      s.stop(ok ? "Installed @clack/prompts" : "Could not install @clack/prompts");
+      if (!ok) log.warn("Run bun install before bun ship:setup; the ship client imports @clack/prompts.");
+    }
   }
-  if (!installed) log.warn("Run bun install before bun ship:setup; the ship client imports @clack/prompts.");
 
   let deployNow = false;
   if (interactive) {

@@ -72,4 +72,9 @@ try:
     _, status = os.waitpid(pid, 0)
 except ChildProcessError:
     status = 0
-sys.exit(0 if not alive else os.waitstatus_to_exitcode(status))
+if not alive:
+    # Killed for going quiet with no keystrokes left: the run hung, and a zero
+    # exit here would let a test pass on a transcript that stopped early.
+    sys.stderr.write("pty-run: child went idle and was terminated\n")
+    sys.exit(124)
+sys.exit(os.waitstatus_to_exitcode(status))

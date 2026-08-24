@@ -2,11 +2,25 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { join } from "path";
 
 const DEFAULT_TEMPLATES_DIR = join(import.meta.dir, "templates");
-const CLACK_VERSION = (
+export const CLACK_VERSION = (
   JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8")) as {
     dependencies: Record<string, string>;
   }
 ).dependencies["@clack/prompts"]!;
+
+/**
+ * How to install the client's one dependency here. A project with an npm or
+ * pnpm lockfile must not get a bun.lock dropped beside it, so those get the
+ * matching command to run instead of a silent second lockfile.
+ */
+export function dependencyInstall(lockfiles: string[]): { command: string[]; manual?: string } {
+  const pinned = `@clack/prompts@${CLACK_VERSION}`;
+  if (lockfiles.includes("package-lock.json")) return { command: [], manual: `npm install --save-dev ${pinned}` };
+  if (lockfiles.includes("pnpm-lock.yaml")) return { command: [], manual: `pnpm add -D ${pinned}` };
+  if (lockfiles.includes("yarn.lock")) return { command: [], manual: `yarn add --dev --exact ${pinned}` };
+  // --exact keeps the version this package pins, instead of widening it to ^.
+  return { command: ["bun", "add", "--dev", "--exact", pinned] };
+}
 
 export interface DetectedOutput {
   framework: string;
@@ -130,9 +144,10 @@ export interface AdoptResult {
   dependency: boolean;
 }
 
-function tracked(root: string, path: string): boolean {
+function trackedState(root: string, path: string): "tracked" | "untracked" | "no-repository" {
   const listed = Bun.spawnSync(["git", "ls-files", "--", path], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  return listed.exitCode === 0 && listed.stdout.toString().trim().length > 0;
+  if (listed.exitCode !== 0) return "no-repository";
+  return listed.stdout.toString().trim() ? "tracked" : "untracked";
 }
 
 /**
@@ -160,9 +175,13 @@ export async function adoptProject(opts: AdoptOptions): Promise<AdoptResult> {
   }
   // Without a build script the image can only contain what the commit
   // contains, so the output has to be in git already.
-  if (!opts.buildScript && !tracked(opts.root, opts.outputDir)) {
+  const state = opts.buildScript ? "tracked" : trackedState(opts.root, opts.outputDir);
+  if (state !== "tracked") {
+    const next = state === "no-repository"
+      ? `git init && git add ${opts.outputDir} && git commit -m "Add site"`
+      : `commit ${opts.outputDir}/`;
     throw new AdoptError(
-      `Without a build script, ${opts.outputDir}/ must be committed so shipped images match the exact commit.\n\nNext: commit ${opts.outputDir}/, or add a build script to package.json, then run bun create shibumi . again.`
+      `Without a build script, ${opts.outputDir}/ must be committed so shipped images match the exact commit.\n\nNext: ${next}, or add a build script to package.json, then run bun create shibumi . again.`
     );
   }
 

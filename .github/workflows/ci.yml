@@ -14,6 +14,11 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
+      # The setup-plan tests drive the client on a pty owned by
+      # test/fixtures/pty-run.py. Fail here, legibly, if the runner image ever
+      # stops shipping python3.
+      - name: pty prerequisite
+        run: python3 --version
       - run: bun test
       - run: bun run check
       - name: forbid shell-string exec in shipped surface
@@ -130,6 +135,8 @@ jobs:
         with:
           bun-version: "1.4.0"
       - run: bun install --frozen-lockfile
+      - name: pty prerequisite
+        run: python3 --version
       - run: bun test
       - name: floor scaffold acceptance (full-stack + auth)
         run: |
