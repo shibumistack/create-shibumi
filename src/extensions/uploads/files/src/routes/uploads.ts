@@ -4,7 +4,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { csrf } from "hono/csrf";
-import { rateLimit, requireAuth, type AuthEnv } from "../lib/auth";
+import { csrfOptions, rateLimit, requireAuth, type AuthEnv } from "../lib/auth";
 import {
   MAX_FILES_PER_REQUEST,
   MAX_FILE_BYTES,
@@ -21,7 +21,7 @@ export const uploadRoutes = new Hono<AuthEnv>();
 // CSRF first (refuse cross-origin mutations before any session work), then a
 // required session. Two middleware registrations, so the mounted surface
 // carries two `ALL /uploads/*` entries.
-uploadRoutes.use(csrf());
+uploadRoutes.use(csrf(csrfOptions()));
 uploadRoutes.use(requireAuth);
 
 function idParam(c: Context): number | null {

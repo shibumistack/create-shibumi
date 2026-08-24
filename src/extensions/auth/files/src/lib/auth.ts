@@ -210,6 +210,16 @@ export function nodeEnv(): string | undefined {
   return process.env["NODE_ENV"];
 }
 
+// Behind a TLS-terminating proxy (Caddy) the app sees its own URL as http://,
+// so hono's default CSRF check (Origin header vs request URL origin) would
+// reject every browser form POST in production: the browser sends the https
+// origin, the request URL yields the http one. Pin the expected origin to
+// APP_ORIGIN when set; without it (development) the same-origin default stays.
+export function csrfOptions(): { origin?: string } {
+  const appOrigin = process.env["APP_ORIGIN"];
+  return appOrigin ? { origin: new URL(appOrigin).origin } : {};
+}
+
 export async function deliverLoginLink(email: string, url: string): Promise<void> {
   // Fail-closed: only explicit development logs the link; any other value
   // (including unset) refuses rather than printing tokens to output.

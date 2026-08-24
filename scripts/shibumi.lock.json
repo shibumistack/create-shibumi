@@ -3,11 +3,11 @@
   "extensions": [
     {
       "name": "admin",
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     {
       "name": "auth",
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     {
       "name": "email",
@@ -15,8 +15,8 @@
     },
     {
       "name": "uploads",
-      "version": "1.0.0"
+      "version": "1.0.1"
     }
   ],
-  "sha256": "5055281f6f611ba605aaca4a55c3ad4785c6039922e29d6214c16fa61c699bc4"
+  "sha256": "6c2e28c32b83f0f22d191cb9cbe4c50ae504ffe371808edd379a1ce07f1f1dc7"
 }

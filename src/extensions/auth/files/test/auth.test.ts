@@ -350,3 +350,35 @@ describe("rate limiter", () => {
     expect(rateLimit("flood:final", 3, 60_000, start + 11_000)).toBe(true);
   });
 });
+
+describe("csrfOptions", () => {
+  it("pins the CSRF origin to APP_ORIGIN so browser form posts work behind a TLS proxy", async () => {
+    process.env.APP_ORIGIN = "https://app.example.com";
+    try {
+      const { csrfOptions } = await import("../src/lib/auth");
+      expect(csrfOptions()).toEqual({ origin: "https://app.example.com" });
+      const { Hono } = await import("hono");
+      const { csrf } = await import("hono/csrf");
+      const probe = new Hono();
+      probe.use(csrf(csrfOptions()));
+      probe.post("/x", (c) => c.text("ok"));
+      const form = (origin: string) =>
+        new Request("http://app.example.com/x", {
+          method: "POST",
+          headers: { origin, "content-type": "application/x-www-form-urlencoded" },
+          body: "a=1",
+        });
+      // Request URL is http:// (what the app sees behind Caddy); the browser
+      // sends the https origin. Default csrf() rejects this; pinned passes.
+      expect((await probe.fetch(form("https://app.example.com"))).status).toBe(200);
+      expect((await probe.fetch(form("https://evil.example"))).status).toBe(403);
+    } finally {
+      delete process.env.APP_ORIGIN;
+    }
+  });
+
+  it("keeps the same-origin default when APP_ORIGIN is unset", async () => {
+    const { csrfOptions } = await import("../src/lib/auth");
+    expect(csrfOptions()).toEqual({});
+  });
+});

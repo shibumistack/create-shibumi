@@ -16,7 +16,19 @@ Admins are the emails in the `ADMIN_EMAILS` environment variable (comma-separate
 Because access is granted by email, the auth extension **reserves** every `ADMIN_EMAILS` address from self-service password registration (a `403` at `/auth/register`), so an attacker cannot register the admin address before you. Create the admin account by one of:
 
 - **Login link** (proves inbox control): request `/auth/login-link` for the admin email once the email extension is wired.
-- **Console seed** before exposing the app: `bun -e 'import { createUser } from "./src/lib/auth"; await createUser("you@example.com", process.env.SEED_PW!)'` with `SEED_PW` set in the environment.
+- **Console seed, local development**: `bun -e 'import { createUser } from "./src/lib/auth"; await createUser("you@example.com", process.env.SEED_PW!)'` with `SEED_PW` set in the environment. This writes the local database only.
+- **Console seed, deployed server**: the shipped container carries compiled `dist/` without `src/`, so the import above cannot run there. Seed the production database inside the container instead (same `Bun.password` default hash):
+
+  ```
+  printf '%s' "$SEED_PW" | podman exec -i <container-name> bun -e '
+    const pw = await new Response(Bun.stdin.stream()).text();
+    const { Database } = await import("bun:sqlite");
+    new Database("/data/app.db").run(
+      "INSERT INTO users (email, password_hash) VALUES (?, ?)",
+      ["you@example.com", await Bun.password.hash(pw)]);'
+  ```
+
+  The password arrives over stdin so it never appears in the host process list.
 
 Set `ADMIN_EMAILS` before the app is publicly reachable: `bun ship:env set ADMIN_EMAILS=you@example.com`, then `bun ship`.
 

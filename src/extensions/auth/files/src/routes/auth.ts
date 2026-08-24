@@ -21,6 +21,7 @@ import {
   createLoginToken,
   createSession,
   createUser,
+  csrfOptions,
   deliverLoginLink,
   destroySession,
   isReservedEmail,
@@ -33,7 +34,7 @@ import {
 
 export const authRoutes = new Hono();
 
-authRoutes.use(csrf());
+authRoutes.use(csrf(csrfOptions()));
 
 // `website` is a honeypot: a decoy field no real client sends. Bots that
 // autofill it get a plausible response with no work done.

@@ -4,14 +4,14 @@
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 import { getCookie } from "hono/cookie";
-import { SESSION_COOKIE, sessionUser, type AuthUser } from "../lib/auth";
+import { SESSION_COOKIE, csrfOptions, sessionUser, type AuthUser } from "../lib/auth";
 import { deleteUser, isAdmin, listUsers, type AdminUserRow } from "../lib/admin";
 
 type AdminEnv = { Variables: { user: AuthUser } };
 
 export const adminRoutes = new Hono<AdminEnv>();
 
-adminRoutes.use(csrf());
+adminRoutes.use(csrf(csrfOptions()));
 // Session + allowlist gate. Not `requireAuth`: admins get a 403 page, signed-out
 // visitors a 401, both as HTML rather than JSON.
 adminRoutes.use(async (c, next) => {
