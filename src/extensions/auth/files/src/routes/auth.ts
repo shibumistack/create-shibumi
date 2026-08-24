@@ -106,7 +106,15 @@ function tooMany(c: Context): Response {
   return c.json({ error: "Too many attempts. Try again later." }, 429);
 }
 
+// Auth bodies are tiny (email + password). Reject anything larger before
+// buffering, so an app that raised the server's global maxRequestBodySize for
+// another feature (e.g. uploads) does not expose these routes to oversized
+// JSON. Content-Length covers the common case; the server's global limit
+// remains the hard ceiling for chunked requests.
+const MAX_AUTH_BODY_BYTES = 4 * 1024;
 async function jsonBody(c: Context): Promise<unknown> {
+  const declared = Number(c.req.header("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > MAX_AUTH_BODY_BYTES) return null;
   try {
     return await c.req.json();
   } catch {

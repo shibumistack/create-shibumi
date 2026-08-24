@@ -4,7 +4,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { csrf } from "hono/csrf";
-import { requireAuth, type AuthEnv } from "../lib/auth";
+import { rateLimit, requireAuth, type AuthEnv } from "../lib/auth";
 import {
   MAX_FILES_PER_REQUEST,
   MAX_FILE_BYTES,
@@ -13,6 +13,9 @@ import {
   listUploads,
   saveFiles,
 } from "../lib/uploads";
+
+const UPLOAD_RATE_WINDOW_MS = 15 * 60 * 1000;
+const UPLOAD_RATE_LIMIT = 30; // POST /uploads calls per user per window
 
 export const uploadRoutes = new Hono<AuthEnv>();
 
@@ -30,6 +33,10 @@ function idParam(c: Context): number | null {
 }
 
 uploadRoutes.post("/", async (c) => {
+  // Keyed on the authenticated user, so it needs no forwarded-IP trust.
+  if (!rateLimit(`uploads:${c.get("user").id}`, UPLOAD_RATE_LIMIT, UPLOAD_RATE_WINDOW_MS)) {
+    return c.json({ error: "Too many uploads. Try again later." }, 429);
+  }
   let form: FormData;
   try {
     form = await c.req.formData();

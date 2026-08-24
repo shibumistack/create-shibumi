@@ -20,14 +20,15 @@ Installed by `bun run shibumi add uploads`. Needs the auth extension (every rout
 ## Validation and storage
 
 - Type is decided by sniffing magic bytes, never the client filename or `Content-Type`. Allowlist: PNG, JPEG, GIF, WebP, PDF. Extend `ALLOWED_TYPES` in `src/lib/uploads.ts`; every entry must carry a byte signature.
-- Limits: 10 MiB per file (`MAX_FILE_BYTES`), 5 files per request (`MAX_FILES_PER_REQUEST`). The oversize check runs before the file is buffered.
+- Limits: 10 MiB per file (`MAX_FILE_BYTES`), 5 files per request (`MAX_FILES_PER_REQUEST`), a 100 MiB per-user total (`USER_QUOTA_BYTES`), and 30 upload requests per user per 15 minutes. The oversize and quota checks run before each file is buffered.
+- Type sniffing matches leading magic bytes only, so a crafted polyglot could carry a valid header. That is why serving forces `attachment` + `nosniff` and never renders inline; do not weaken that (see below). Re-encode images if you need stronger guarantees.
 - On-disk name is `sha256(content).<sniffed-ext>`, so it can never contain a path separator or traversal segment, and identical bytes are stored once. The original filename is kept as display metadata only, sanitized.
 - Bytes live under `<db-dir>/uploads` (derived from `DB_PATH`, so the container's `/data` volume); metadata is the `uploads` table.
 - `resolveStored` rejects any name that is not a bare content-addressed name or that would escape the uploads directory; serving reads only through it.
 
 ## Request size
 
-Installing uploads raises `maxRequestBodySize` in `src/server.ts` to 55 MiB (5 x 10 MiB plus multipart overhead). Removal restores 1 MiB. Adjust both the server value and the per-file/per-request limits together if you change the caps.
+Installing uploads raises `maxRequestBodySize` in `src/server.ts` to 55 MiB (5 x 10 MiB plus multipart overhead). Removal restores 1 MiB. Adjust both the server value and the per-file/per-request limits together if you change the caps. Because that global ceiling now admits large bodies, the auth extension caps its own JSON routes by `Content-Length` independently; keep that guard on any small-body route you add.
 
 ## Serving untrusted files
 

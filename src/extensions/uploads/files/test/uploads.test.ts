@@ -13,12 +13,17 @@ const { applyMigrations } = await import("../src/db/lifecycle");
 const { createUser, createSession, SESSION_COOKIE } = await import("../src/lib/auth");
 const {
   MAX_FILE_BYTES,
+  USER_QUOTA_BYTES,
   deleteUpload,
   resolveStored,
   saveBuffer,
+  saveFiles,
   sniffType,
   uploadsDir,
+  userUsageBytes,
 } = await import("../src/lib/uploads");
+const { db } = await import("../src/db");
+const { uploads } = await import("../src/db/schema-uploads");
 await applyMigrations(sqlite);
 
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -162,6 +167,37 @@ describe("routes", () => {
     const res = await upload(cookie, multipart(many));
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toContain("Too many");
+  });
+});
+
+describe("quota", () => {
+  it("rejects an upload that would exceed the per-user byte quota", async () => {
+    const { userId } = await freshSession();
+    // Seed usage at the quota with a metadata row (no bytes on disk needed).
+    await db.insert(uploads).values({
+      storedName: `${"b".repeat(64)}.png`,
+      originalName: "seed.png",
+      contentType: "image/png",
+      size: USER_QUOTA_BYTES,
+      sha256: "b".repeat(64),
+      userId,
+    });
+    expect(await userUsageBytes(userId)).toBe(USER_QUOTA_BYTES);
+    const result = await saveFiles([new File([PNG as BlobPart], "x.png", { type: "image/png" })], userId);
+    expect(result.saved.length).toBe(0);
+    expect(result.rejected[0]!.reason).toContain("quota");
+  });
+});
+
+describe("rate limiting", () => {
+  it("429s after the per-user upload limit", async () => {
+    const { cookie } = await freshSession();
+    let limited = false;
+    for (let i = 0; i < 31; i++) {
+      const res = await upload(cookie, multipart([{ name: "a.png", bytes: PNG }]));
+      if (res.status === 429) limited = true;
+    }
+    expect(limited).toBe(true);
   });
 });
 
