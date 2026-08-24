@@ -45,6 +45,8 @@ beforeEach(() => {
   writeFileSync(join(project, ".env"), "API_TOKEN=super-secret\n");
   writeFileSync(join(project, ".env.local"), "API_TOKEN=also-secret\n");
   writeFileSync(join(project, ".env.example"), "API_TOKEN=\n");
+  writeFileSync(join(project, ".env.sample"), "API_TOKEN=\n");
+  writeFileSync(join(project, ".env.template"), "API_TOKEN=\n");
   writeFileSync(join(project, "src", "schema.env.ts"), "export type Env = { API_TOKEN: string };\n");
   writeFileSync(join(project, "src", "config.env.json"), `{ "region": "eu" }\n`);
   git("init", "-q", "-b", "main", ".");
@@ -136,13 +138,15 @@ describe("setup plan", () => {
     expect(tracked).not.toContain(".env");
     expect(tracked).not.toContain(".env.local");
     expect(tracked).toContain(".env.example");
+    expect(tracked).toContain(".env.sample");
+    expect(tracked).toContain(".env.template");
     expect(tracked).toContain("src/schema.env.ts");
     expect(tracked).toContain("src/config.env.json");
     expect(tracked).toContain("compose.yaml");
     expect(tracked).toContain("shibumi-server.json");
-    // And the warning names only the two it actually held back.
-    expect(r.output).toContain("Left .env, .env.local out of the commit");
-    expect(r.output).not.toContain(".env.example out of the commit");
+    // And the warning names the two it held back, and only those: git's own
+    // commit output lists the example files, so read the warning line itself.
+    expect(/Left (.+) out of the commit/.exec(r.output)?.[1]).toBe(".env, .env.local");
     expect(readFileSync(join(project, ".env"), "utf8")).toContain("super-secret");
 
     // The push really happened: the bare origin has the branch.

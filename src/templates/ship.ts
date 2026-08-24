@@ -1082,10 +1082,13 @@ async function resolveDomain(current?: ClientConfig): Promise<string> {
 // "*" stops at the separator, so only real dotenv basenames match.
 const ENV_EXCLUDES = [":(exclude,glob)**/.env", ":(exclude,glob)**/.env.*"];
 const ENV_GLOBS = [":(glob)**/.env", ":(glob)**/.env.*"];
-const ENV_EXAMPLE_GLOB = ":(glob)**/.env.example";
+// The three conventional names for the file that lists the variables and none
+// of their values.
+const ENV_EXAMPLE_NAMES = [".env.example", ".env.sample", ".env.template"];
+const ENV_EXAMPLE_GLOBS = ENV_EXAMPLE_NAMES.map((name) => `:(glob)**/${name}`);
 
 function isEnvExample(path: string): boolean {
-  return path === ".env.example" || path.endsWith("/.env.example");
+  return ENV_EXAMPLE_NAMES.some((name) => path === name || path.endsWith(`/${name}`));
 }
 
 async function untrackedEnvFiles(): Promise<string[]> {
@@ -1093,10 +1096,10 @@ async function untrackedEnvFiles(): Promise<string[]> {
   return listed.stdout.split("\n").filter(Boolean).filter((path) => !isEnvExample(path));
 }
 
-// .env.example documents the variable names and holds none of the values, so
-// it rides along after the blanket exclude took it out.
+// The example files document the variable names and hold none of the values,
+// so they ride along after the blanket exclude took them out.
 async function addEnvExamples(): Promise<void> {
-  const listed = await run(["git", "ls-files", "--others", "--modified", "--exclude-standard", "--", ENV_EXAMPLE_GLOB], { allowFailure: true });
+  const listed = await run(["git", "ls-files", "--others", "--modified", "--exclude-standard", "--", ...ENV_EXAMPLE_GLOBS], { allowFailure: true });
   const examples = [...new Set(listed.stdout.split("\n").filter(Boolean))];
   if (examples.length > 0) await run(["git", "add", "--", ...examples], { allowFailure: true });
 }
