@@ -17,6 +17,7 @@
     "ship:logs": "bun scripts/ship.ts --logs",
     "ship:env": "bun scripts/ship.ts --env",
     "shibumi": "bun scripts/shibumi.ts",
+    "shi": "bun scripts/shibumi.ts",
     "db:migrate": "bun scripts/db.ts migrate",
     "db:backup": "bun scripts/db.ts backup",
     "db:restore": "bun scripts/db.ts restore",
