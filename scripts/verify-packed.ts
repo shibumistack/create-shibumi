@@ -313,7 +313,7 @@ function main(): void {
       const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
         scripts: Record<string, string>;
       };
-      if (pkg.scripts["ship:setup"] !== "bun scripts/ship.ts --setup --static --output-dir public") {
+      if (pkg.scripts["ship:setup"] !== "bun scripts/ship.ts --setup --static --output-dir public --no-spa") {
         fail("accept:static", `unexpected ship:setup script: ${pkg.scripts["ship:setup"]}`);
       }
       if (pkg.scripts.shibumi) fail("accept:static", "static template must not carry the shibumi script");

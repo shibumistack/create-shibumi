@@ -11,6 +11,7 @@
       },
       "devDependencies": {
         "@astrojs/check": "0.9.10",
+        "@clack/prompts": "1.7.0",
         "typescript": "5.9.2",
       },
     },
