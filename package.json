@@ -1,6 +1,6 @@
 {
   "name": "create-shibumi",
-  "version": "0.2.5",
+  "version": "0.2.7",
   "description": "Scaffold a Shibumi Stack project: Bun, Hono, Zod, Drizzle, SQLite, Alpine",
   "type": "module",
   "bin": {
