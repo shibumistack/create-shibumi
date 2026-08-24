@@ -25,7 +25,7 @@ const SERVER_HOSTNAME = /^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const SERVER_CLI = "~/.local/bin/shibumi-server";
 const LATEST_SOURCE = "https://shibumistack.dev/ship/latest.ts";
-const CURRENT_SOURCE = "https://shibumistack.dev/ship/v46.ts";
+const CURRENT_SOURCE = "https://shibumistack.dev/ship/v47.ts";
 let sshControlDirectory: string | undefined;
 let sshControlTarget: string | undefined;
 
@@ -96,6 +96,7 @@ interface ShipOptions {
   outputDir?: string;
   buildScript?: string;
   spa: boolean;
+  noSpa?: boolean;
 }
 
 export interface StaticSiteConfig {
@@ -160,6 +161,7 @@ export function parseShipArgs(args: string[]): ShipOptions {
     else if (argument === "--yes" || argument === "-y") parsed.yes = true;
     else if (argument === "--static") parsed.staticSite = true;
     else if (argument === "--spa") parsed.spa = true;
+    else if (argument === "--no-spa") parsed.noSpa = true;
     else if (argument === "--server" || argument === "--domain" || argument === "--trigger" || argument === "--output-dir" || argument === "--build-script") {
       const value = args[index + 1];
       if (!value || value.startsWith("-")) throw new Error(`${argument} requires a value`);
@@ -175,8 +177,9 @@ export function parseShipArgs(args: string[]): ShipOptions {
   if ([parsed.setup, parsed.update, parsed.rollback, parsed.logs, parsed.status, parsed.dev].filter(Boolean).length > 1) throw new Error("choose only one ship action");
   if (parsed.rebuild && (parsed.setup || parsed.update || parsed.rollback || parsed.logs || parsed.status || parsed.dev)) throw new Error("--rebuild applies only to shipping");
   if (parsed.trigger && !parsed.setup) throw new Error("--trigger requires --setup");
-  if ((parsed.staticSite || parsed.outputDir || parsed.buildScript || parsed.spa) && !parsed.setup) throw new Error("--static, --output-dir, --build-script, and --spa require --setup");
-  if ((parsed.outputDir || parsed.buildScript || parsed.spa) && !parsed.staticSite) throw new Error("--output-dir, --build-script, and --spa require --static");
+  if (parsed.spa && parsed.noSpa) throw new Error("--spa and --no-spa are mutually exclusive");
+  if ((parsed.staticSite || parsed.outputDir || parsed.buildScript || parsed.spa || parsed.noSpa) && !parsed.setup) throw new Error("--static, --output-dir, --build-script, and --spa require --setup");
+  if ((parsed.outputDir || parsed.buildScript || parsed.spa || parsed.noSpa) && !parsed.staticSite) throw new Error("--output-dir, --build-script, and --spa require --static");
   if (parsed.outputDir) {
     const problem = staticOutputDirProblem(parsed.outputDir);
     if (problem) throw new Error(problem);
@@ -483,7 +486,6 @@ CMD ["bun", "run", "start"]
     environment:
       HOST: 0.0.0.0
       PORT: "3000"
-    init: true
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -657,7 +659,6 @@ ENTRYPOINT ["/busybox", "httpd", "-f", "-p", "3000", "-h", "/www", "-c", "/www/h
       - "127.0.0.1:\${SHIBUMI_PORT:-9001}:3000"
     labels:
 ${staticComposeLabels(config)}
-    init: true
     restart: unless-stopped
     healthcheck:
       test: ${healthcheck}
@@ -806,6 +807,7 @@ async function prepareCompose(): Promise<boolean> {
 
   if (wantStatic) {
     await generateStaticDeployment();
+    if (await offerGeneratedCommit(["Dockerfile", "compose.yaml", ".dockerignore", "scripts/static-server.ts", "package.json", "bun.lock"])) return false;
     outro("Review generated deployment files.\n\nNext: commit and push these changes, then run bun ship:setup.");
     return true;
   }
@@ -824,6 +826,8 @@ async function prepareCompose(): Promise<boolean> {
     written.push(name);
   }
   log.success(`Generated ${written.join(", ")}`);
+  log.info("Verify the app binds to 0.0.0.0 and reads PORT before shipping.");
+  if (await offerGeneratedCommit(written)) return false;
   outro("Review generated deployment files and verify app binds to 0.0.0.0 and reads PORT.\n\nNext: commit and push these changes, then run bun ship:setup.");
   return true;
 }
@@ -835,6 +839,23 @@ const SHIP_SCRIPTS = {
   "ship:status": "bun scripts/ship.ts --status",
   "ship:logs": "bun scripts/ship.ts --logs",
 };
+
+
+// After generating deployment files interactively, offer to commit and push
+// them in the same run so setup continues without a manual rerun. Returns
+// true when the files are committed and pushed.
+async function offerGeneratedCommit(files: string[]): Promise<boolean> {
+  if (agentRun || !process.stdin.isTTY || !process.stdout.isTTY) return false;
+  const accepted = await confirm({ message: "Commit and push the generated files, then continue setup?", initialValue: true });
+  if (isCancel(accepted) || !accepted) return false;
+  const present: string[] = [];
+  for (const file of files) if (await Bun.file(join(root, file)).exists()) present.push(file);
+  await run(["git", "add", "--", ...present]);
+  await run(["git", "commit", "--only", "-m", "Add deployment configuration", "--", ...present], { inherit: true });
+  await run(["git", "push"], { inherit: true });
+  log.success("Committed and pushed deployment files");
+  return true;
+}
 
 async function generateStaticDeployment(): Promise<void> {
   // Script-less generators (Jekyll) have no package.json; create a minimal one
@@ -880,7 +901,7 @@ async function generateStaticDeployment(): Promise<void> {
   if (problem) throw new Error(problem);
 
   let spa = options.spa;
-  if (!spa && !agentRun && !options.yes) {
+  if (!spa && !options.noSpa && !agentRun && !options.yes) {
     const answer = await confirm({ message: "Single-page app? (unknown paths serve index.html)", initialValue: false });
     if (isCancel(answer)) throw new Error("setup cancelled");
     spa = answer;
