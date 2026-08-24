@@ -12,6 +12,6 @@ What kept people off their own servers was never capacity. It was the deploy sto
 
 <small>Photo via [Pexels](https://www.pexels.com/photo/289586/)</small>
 
-The answers turn out to be portable. Build the exact commit, verify the output, ship the image, health-check before cutover, keep the previous image for rollback. None of that requires a platform; it requires a script you can read.
+The answers turn out to be portable. Build the exact commit, verify the output, ship the image, health-check before cutover, keep the previous image for rollback. None of that needs a platform. It fits in a script short enough to read before you trust it.
 
 Rent is fine. Owning is calmer.

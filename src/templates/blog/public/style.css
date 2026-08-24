@@ -40,9 +40,21 @@
       padding-bottom: 1rem;
 
       a {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.7rem;
         color: var(--ink);
-        font-weight: 600;
+        font-family: ui-serif, Georgia, "Iowan Old Style", Cambria, serif;
+        font-size: 1.25rem;
+        font-weight: 500;
+        letter-spacing: 0.01em;
         text-decoration: none;
+      }
+
+      .mark-badge {
+        height: 2.1rem;
+        width: auto;
+        color: var(--accent);
       }
     }
 

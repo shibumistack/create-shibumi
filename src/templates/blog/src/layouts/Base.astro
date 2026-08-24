@@ -17,7 +17,12 @@ interface Props {
     <BaseHead {...Astro.props} />
   </head>
   <body>
-    <header><a href="/">{SITE.name}</a></header>
+    <header>
+      <a href="/" class="mark">
+        <svg class="mark-badge" viewBox="0 0 60 104" aria-hidden="true"><rect x="4" y="4" width="52" height="96" rx="14" fill="none" stroke="currentColor" stroke-width="5" /><text x="30" y="32" text-anchor="middle" dominant-baseline="central" font-size="30" fill="currentColor" font-family="Hiragino Sans, Noto Sans JP, sans-serif">渋</text><text x="30" y="70" text-anchor="middle" dominant-baseline="central" font-size="30" fill="currentColor" font-family="Hiragino Sans, Noto Sans JP, sans-serif">み</text></svg>
+        <span>{SITE.name}</span>
+      </a>
+    </header>
     <main>
       <slot />
     </main>
