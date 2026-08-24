@@ -2,12 +2,6 @@
    Edit freely; this file is yours. Tokens: --paper --ink --muted --line
    --accent, type scale --text-xs..--text-2xl, --font-sans/serif/mono. */
 
-/* The vendored shibumi.css paints a noise texture on body::before for the
-   marketing sites. Apps get a flat surface; delete this rule to bring it back. */
-body::before {
-  display: none;
-}
-
 .scaffold {
   max-width: 40.625rem;
   margin: 0 auto;
