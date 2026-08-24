@@ -52,9 +52,9 @@
       }
 
       .mark-badge {
-        height: 2.1rem;
-        width: auto;
         color: var(--accent);
+        font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+        font-size: 1.125rem;
       }
     }
 
