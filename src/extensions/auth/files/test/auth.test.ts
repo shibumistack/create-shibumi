@@ -78,6 +78,25 @@ describe("register and login", () => {
     expect(rows[0]!.tokenHash).not.toBe(token);
   });
 
+  it("reserves ADMIN_EMAILS addresses from self-service registration", async () => {
+    const reserved = uniqueEmail();
+    const original = process.env.ADMIN_EMAILS;
+    process.env.ADMIN_EMAILS = `${reserved}, someone-else@example.com`;
+    try {
+      const res = await post("/auth/register", { email: reserved, password: "password123" });
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { error: string }).error).toContain("reserved");
+      // A non-reserved address still registers.
+      expect((await post("/auth/register", { email: uniqueEmail(), password: "password123" })).status).toBe(201);
+      // Reserved address can still get a login link (inbox proof).
+      const link = await post("/auth/login-link", { email: reserved });
+      expect(link.status).toBe(200);
+    } finally {
+      if (original === undefined) delete process.env.ADMIN_EMAILS;
+      else process.env.ADMIN_EMAILS = original;
+    }
+  });
+
   it("rejects duplicate registration with 409", async () => {
     const email = uniqueEmail();
     expect((await post("/auth/register", { email, password: "password123" })).status).toBe(201);

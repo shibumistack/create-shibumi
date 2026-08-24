@@ -50,6 +50,23 @@ export function hashToken(token: string): string {
   return new Bun.CryptoHasher("sha256").update(token).digest("hex");
 }
 
+// Emails listed in ADMIN_EMAILS are privileged (the admin extension grants
+// them access by address). They must not be claimable through self-service
+// password registration, or an attacker could register the admin address
+// before the operator. Reserved addresses can still sign in via the login
+// link, which proves control of the inbox. No-op when ADMIN_EMAILS is unset
+// (e.g. the admin extension is not installed).
+export function isReservedEmail(email: string): boolean {
+  const raw = process.env["ADMIN_EMAILS"];
+  if (!raw) return false;
+  const target = normalizeEmail(email);
+  return raw
+    .split(",")
+    .map((entry) => normalizeEmail(entry))
+    .filter(Boolean)
+    .includes(target);
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }

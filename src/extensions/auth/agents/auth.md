@@ -34,6 +34,10 @@ app.use("/account/*", requireAuth);
 
 - `APP_ORIGIN` (validated in `src/env.ts`): canonical origin for login links, e.g. `https://app.example.com`. Login-link building is fail-closed: only `NODE_ENV=development` falls back to the request origin; every other value (production, or unset) requires `APP_ORIGIN` and requires it to be `https`, so a poisoned Host header can never redirect tokens and tokens never ride plaintext. The generated Dockerfile sets `NODE_ENV=production`; keep it set in every deployment.
 
+## Reserved emails
+
+If `ADMIN_EMAILS` is set (by the admin extension), those addresses are privileged and cannot be created through `/auth/register` (it returns `403`). They can still sign in via the login link, which proves inbox control. This stops an attacker from registering the admin address first. No effect when `ADMIN_EMAILS` is unset.
+
 ## Honeypot
 
 `register`, `login`, and `login-link` accept an optional decoy field named `website`. Real clients omit it (or send it empty); render it in HTML forms as a visually hidden input. A non-empty value marks the request as a bot: the response stays plausible (fake 201, uniform 401, uniform 200) while no account, session, or token is created.

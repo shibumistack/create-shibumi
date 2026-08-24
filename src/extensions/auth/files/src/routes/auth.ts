@@ -18,6 +18,7 @@ import {
   createUser,
   deliverLoginLink,
   destroySession,
+  isReservedEmail,
   nodeEnv,
   normalizeEmail,
   rateLimit,
@@ -180,6 +181,11 @@ authRoutes.post("/register", async (c) => {
   }
   if (!parsed.success) {
     return c.json({ error: "Provide a valid email and a password of 8 to 128 characters." }, 400);
+  }
+  if (isReservedEmail(parsed.data.email)) {
+    // Privileged address: cannot be self-registered; must sign in via the
+    // login link (inbox proof) or be seeded by the operator.
+    return c.json({ error: "This address is reserved. Sign in with a login link." }, 403);
   }
   try {
     const user = await createUser(parsed.data.email, parsed.data.password);

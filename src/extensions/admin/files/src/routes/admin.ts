@@ -41,6 +41,9 @@ function page(title: string, body: string): string {
     <title>${escapeHtml(title)}</title>
     <link rel="stylesheet" href="/public/style.css" />
     <link rel="stylesheet" href="/public/admin.css" />
+    <!-- Self-hosted so it runs under the app's script-src 'self' CSP; an
+         inline handler would be blocked. -->
+    <script src="/public/admin.js" defer></script>
   </head>
   <body>
     <main class="admin">
@@ -64,9 +67,9 @@ function usersTable(rows: AdminUserRow[], self: number): string {
       const action =
         row.id === self
           ? `<td class="muted">you</td>`
-          : `<td><form method="post" action="/admin/users/${row.id}/delete" onsubmit="return confirm('Delete ${escapeHtml(
+          : `<td><form method="post" action="/admin/users/${row.id}/delete" data-confirm="Delete ${escapeHtml(
               row.email
-            )}?')"><button type="submit" class="danger">Delete</button></form></td>`;
+            )}?"><button type="submit" class="danger">Delete</button></form></td>`;
       return `<tr><td>${row.id}</td><td>${escapeHtml(row.email)}</td><td>${escapeHtml(
         row.createdAt
       )}</td><td>${row.sessions}</td>${uploads}${action}</tr>`;
