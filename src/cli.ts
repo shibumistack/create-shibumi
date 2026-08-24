@@ -19,7 +19,28 @@ function exitCancelled(): never {
   process.exit(130);
 }
 
+// Emit the vendored extension installer so a generated project can re-vendor it
+// (`bun run shibumi update` runs `bunx create-shibumi@latest --print-installer`).
+// Verifies the checksum lock before printing, so a corrupt package cannot ship
+// a tampered installer through this path.
+async function printInstaller(): Promise<never> {
+  const installer = join(import.meta.dir, "templates", "shibumi.ts");
+  const lockPath = join(import.meta.dir, "..", "scripts", "shibumi.lock.json");
+  const lock = JSON.parse(readFileSync(lockPath, "utf8")) as { sha256: string };
+  const bytes = await Bun.file(installer).arrayBuffer();
+  const digest = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  if (digest !== lock.sha256) {
+    process.stderr.write("Vendored installer does not match its checksum lock; reinstall create-shibumi.\n");
+    process.exit(1);
+  }
+  process.stdout.write(readFileSync(installer, "utf8"));
+  process.exit(0);
+}
+
 async function main(): Promise<void> {
+  if (process.argv.slice(2).includes("--print-installer")) {
+    await printInstaller();
+  }
   const bunProblem = bunVersionProblem(Bun.version);
   if (bunProblem) {
     process.stderr.write(`${bunProblem}\n`);

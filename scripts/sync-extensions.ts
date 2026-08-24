@@ -31,6 +31,7 @@ interface Manifest {
   name: string;
   title: string;
   description: string;
+  version: string;
   requires: "database" | null;
   dependsOn?: string[];
   env: string[];
@@ -73,6 +74,7 @@ export function buildBundles(extensionsDir = EXTENSIONS_DIR): unknown[] {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Manifest;
     if (manifest.name !== name) fail(`${name}: manifest name "${manifest.name}" does not match directory`);
     if (!manifest.title || !manifest.description) fail(`${name}: title and description are required`);
+    if (!/^\d+\.\d+\.\d+$/.test(manifest.version ?? "")) fail(`${name}: version must be semver x.y.z`);
     if (manifest.requires !== "database" && manifest.requires !== null) {
       fail(`${name}: requires must be "database" or null`);
     }
@@ -108,6 +110,7 @@ export function buildBundles(extensionsDir = EXTENSIONS_DIR): unknown[] {
       name: manifest.name,
       title: manifest.title,
       description: manifest.description,
+      version: manifest.version,
       requires: manifest.requires,
       ...(manifest.dependsOn && manifest.dependsOn.length > 0 ? { dependsOn: manifest.dependsOn } : {}),
       env: manifest.env ?? [],
@@ -146,7 +149,10 @@ if (import.meta.main) {
     `${JSON.stringify(
       {
         version: pkg.version,
-        extensions: bundles.map((bundle) => (bundle as { name: string }).name),
+        extensions: bundles.map((bundle) => {
+          const b = bundle as { name: string; version: string };
+          return { name: b.name, version: b.version };
+        }),
         sha256,
       },
       null,

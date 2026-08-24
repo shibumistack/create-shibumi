@@ -2,9 +2,14 @@
   "name": "admin",
   "title": "Admin",
   "description": "Minimal server-rendered admin panel: list and delete users, gated by an ADMIN_EMAILS allowlist",
+  "version": "1.0.0",
   "requires": "database",
-  "dependsOn": ["auth"],
-  "env": ["ADMIN_EMAILS"],
+  "dependsOn": [
+    "auth"
+  ],
+  "env": [
+    "ADMIN_EMAILS"
+  ],
   "hooks": [
     {
       "file": "src/app.ts",

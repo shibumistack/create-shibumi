@@ -2,8 +2,11 @@
   "name": "auth",
   "title": "Auth",
   "description": "Cookie sessions with password and login-link sign-in, CSRF protection, and rate limiting",
+  "version": "1.0.0",
   "requires": "database",
-  "env": ["APP_ORIGIN"],
+  "env": [
+    "APP_ORIGIN"
+  ],
   "hooks": [
     {
       "file": "src/env.ts",

@@ -2,8 +2,13 @@
   "name": "email",
   "title": "Email",
   "description": "Transactional email via Resend's HTTP API: send helper, safe templates, webhook verification",
+  "version": "1.0.0",
   "requires": null,
-  "env": ["RESEND_API_KEY", "EMAIL_FROM", "RESEND_WEBHOOK_SECRET"],
+  "env": [
+    "RESEND_API_KEY",
+    "EMAIL_FROM",
+    "RESEND_WEBHOOK_SECRET"
+  ],
   "hooks": [
     {
       "file": "src/env.ts",

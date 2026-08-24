@@ -97,10 +97,10 @@ describe("embedded bundle freshness", () => {
     expect(regenerated).toBe(committed);
     const lock = JSON.parse(readFileSync(join(REPO, "scripts", "shibumi.lock.json"), "utf8")) as {
       sha256: string;
-      extensions: string[];
+      extensions: Array<{ name: string; version: string }>;
     };
     expect(createHash("sha256").update(committed).digest("hex")).toBe(lock.sha256);
-    expect(lock.extensions).toEqual(EXTENSIONS.map((ext) => ext.name));
+    expect(lock.extensions).toEqual(EXTENSIONS.map((ext) => ({ name: ext.name, version: ext.version })));
   });
 
   it("ships auth and email with the contracted requirements", () => {
@@ -110,6 +110,39 @@ describe("embedded bundle freshness", () => {
     expect(email.requires).toBeNull();
     expect(email.migration).toBeNull();
     expect(email.deps ?? {}).toEqual({});
+  });
+
+  it("carries a semver version on every bundle", () => {
+    for (const ext of EXTENSIONS) expect(ext.version).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+describe("versioning and update", () => {
+  it("records the installed version and clears it on removal", async () => {
+    const root = fixture("full-stack");
+    expect((await cli(root, ["add", "auth", "--yes"])).code).toBe(0);
+    const lockPath = join(root, ".shibumi", "installed.json");
+    expect(JSON.parse(readFileSync(lockPath, "utf8"))).toEqual({ auth: auth.version });
+    expect((await cli(root, ["remove", "auth", "--yes"])).code).toBe(0);
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  it("update --check reports up to date, then drift after an edit", async () => {
+    const root = fixture("full-stack");
+    await cli(root, ["add", "auth", "--yes"]);
+    const clean = await cli(root, ["update", "--check"]);
+    expect(clean.code).toBe(0);
+    expect(clean.out).toContain("up to date");
+
+    writeFileSync(join(root, "src", "lib", "auth.ts"), "// user edit\n");
+    const drifted = await cli(root, ["update", "--check"]);
+    expect(drifted.out).toContain("differ from the bundle");
+    expect(drifted.out).toContain("src/lib/auth.ts");
+  });
+
+  it("update --check on a project with nothing installed says so", async () => {
+    const root = fixture("full-stack");
+    expect((await cli(root, ["update", "--check"])).out).toContain("No extensions installed");
   });
 });
 

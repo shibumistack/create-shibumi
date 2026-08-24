@@ -2,8 +2,11 @@
   "name": "uploads",
   "title": "Uploads",
   "description": "Authenticated file uploads: validated multipart, content-addressed storage on the persistent volume, owner-scoped serving",
+  "version": "1.0.0",
   "requires": "database",
-  "dependsOn": ["auth"],
+  "dependsOn": [
+    "auth"
+  ],
   "env": [],
   "hooks": [
     {

@@ -1,10 +1,22 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "extensions": [
-    "admin",
-    "auth",
-    "email",
-    "uploads"
+    {
+      "name": "admin",
+      "version": "1.0.0"
+    },
+    {
+      "name": "auth",
+      "version": "1.0.0"
+    },
+    {
+      "name": "email",
+      "version": "1.0.0"
+    },
+    {
+      "name": "uploads",
+      "version": "1.0.0"
+    }
   ],
-  "sha256": "4b6d5f270fcd3dabdecacf6de9f34277f6e0f12e3f5aa6c45073598904f19922"
+  "sha256": "8278fc55afb30416d0d5779da622dc114189ad8b74a794302954cee274ad9ce1"
 }
