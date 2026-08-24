@@ -97,8 +97,15 @@ function clientKey(c: Context): string {
   } catch {
     peer = "";
   }
-  const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
-  if (forwarded && (!peer || isPrivateAddress(peer))) return forwarded;
+  // A reverse proxy APPENDS the client it saw to x-forwarded-for, so the last
+  // entry is the one the trusted proxy added; the leftmost is attacker-set and
+  // must never be used as a key. Trust the header only when the direct peer is
+  // a local proxy (or, in tests, there is no socket peer).
+  if (!peer || isPrivateAddress(peer)) {
+    const entries = c.req.header("x-forwarded-for")?.split(",").map((part) => part.trim()).filter(Boolean);
+    const last = entries?.at(-1);
+    if (last) return last;
+  }
   return peer || "local";
 }
 
@@ -113,10 +120,38 @@ function tooMany(c: Context): Response {
 // remains the hard ceiling for chunked requests.
 const MAX_AUTH_BODY_BYTES = 4 * 1024;
 async function jsonBody(c: Context): Promise<unknown> {
-  const declared = Number(c.req.header("content-length") ?? "0");
+  // Cap the actual bytes read, not just the declared Content-Length, so a
+  // chunked or length-spoofed request cannot buffer up to the server's global
+  // ceiling (raised by e.g. the uploads extension). Auth bodies are tiny.
+  const declared = Number(c.req.header("content-length") ?? "");
   if (Number.isFinite(declared) && declared > MAX_AUTH_BODY_BYTES) return null;
+  const body = c.req.raw.body;
+  if (!body) {
+    try {
+      return await c.req.json();
+    } catch {
+      return null;
+    }
+  }
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
   try {
-    return await c.req.json();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > MAX_AUTH_BODY_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return null;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(Buffer.concat(chunks)));
   } catch {
     return null;
   }

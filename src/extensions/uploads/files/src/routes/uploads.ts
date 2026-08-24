@@ -72,8 +72,11 @@ uploadRoutes.get("/:id", async (c) => {
     headers: {
       "content-type": upload.contentType,
       "content-length": String(upload.size),
-      // Never render untrusted uploads inline; force a download.
+      // Never render untrusted uploads inline; force a download. nosniff is
+      // also set globally, but pin it here so serving stays safe even if the
+      // app's header middleware changes.
       "content-disposition": `attachment; filename="${upload.originalName.replace(/"/g, "")}"`,
+      "x-content-type-options": "nosniff",
       "cache-control": "private, no-store",
     },
   });

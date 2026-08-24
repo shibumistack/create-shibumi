@@ -155,6 +155,39 @@ describe("register and login", () => {
     }
     expect(limited).toBe(true);
   });
+
+  it("caps an oversized request body (treated as an invalid body)", async () => {
+    // The 4 KiB cap makes jsonBody return null; register reports that as 400.
+    const res = await app.fetch(
+      new Request("http://localhost/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": uniqueIp() },
+        body: JSON.stringify({ email: "big@example.com", password: "a".repeat(20 * 1024) }),
+      })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("keys the rate limit on the proxy-appended (rightmost) forwarded IP", async () => {
+    // The trusted proxy appends the real client; a spoofed leftmost entry must
+    // not create fresh buckets. Fixed rightmost, varying leftmost -> one bucket.
+    const realIp = uniqueIp();
+    let limited = false;
+    for (let i = 0; i < 7; i++) {
+      const res = await app.fetch(
+        new Request("http://localhost/auth/login-link", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-forwarded-for": `203.0.113.${i}, ${realIp}`,
+          },
+          body: JSON.stringify({ email: `r${i}@example.com` }),
+        })
+      );
+      if (res.status === 429) limited = true;
+    }
+    expect(limited).toBe(true);
+  });
 });
 
 describe("sessions", () => {
