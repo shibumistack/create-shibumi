@@ -15,7 +15,7 @@ First release shipped 2026-08-24: `create-shibumi@0.2.0`, tag `v0.2.0`, registry
 ## Publish steps
 
 1. Confirm npm identity and 2FA: `npm whoami`, account has publish rights to `create-shibumi`, 2FA enabled.
-2. Bump the version in `package.json` in its own release commit. Do not push other changes in this commit.
+2. Bump the version in `package.json` in its own release commit. Do not push other changes in this commit. Golden-number rule (owner convention): the sum of the version components (major + minor + patch) must not be 4, 6, or 8; skip version numbers until the sum clears (0.2.2 sums to 4, so it was skipped for 0.2.3).
 3. `npm pack --dry-run` and review the file list one more time (the CI allowlist already enforces it, but look).
 4. Prefer npm trusted publishing (OIDC from a tagged CI release) over a long-lived token. If publishing locally, use an automation token scoped to this package and revoke it after.
 5. Publish under a prerelease dist-tag, never straight to `latest`:
