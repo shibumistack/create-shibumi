@@ -18,13 +18,32 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { uploads } from "../db/schema-uploads";
 import { loadEnv } from "../env";
+// Editable knobs live in config/uploads.yaml; Bun bundles the parsed values
+// into the image at build time. Edit that file and re-deploy to change limits.
+import rawUploadsConfig from "../config/uploads.yaml";
 
-export const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MiB
-export const MAX_FILES_PER_REQUEST = 5;
+// A bad edit (missing, non-numeric, non-positive, non-integer) throws here at
+// module load, so the container fails its health check and the previous
+// deployment stays live rather than serving with a disabled limit.
+function positiveInt(config: Record<string, unknown>, key: string): number {
+  const value = config[key];
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`uploads config: ${key} must be a positive integer (config/uploads.yaml)`);
+  }
+  return value;
+}
+
+const uploadsConfig = (rawUploadsConfig ?? {}) as Record<string, unknown>;
+const MIB = 1024 * 1024;
+
+export const MAX_FILE_BYTES = positiveInt(uploadsConfig, "max_file_mib") * MIB;
+export const MAX_FILES_PER_REQUEST = positiveInt(uploadsConfig, "max_files_per_request");
 // Per-user ceiling on total stored bytes, so a self-registered account cannot
 // fill the volume. Dedup means shared blobs are counted per referencing row,
 // which is the conservative (higher) number.
-export const USER_QUOTA_BYTES = 100 * 1024 * 1024; // 100 MiB
+export const USER_QUOTA_BYTES = positiveInt(uploadsConfig, "user_quota_mib") * MIB;
+export const UPLOAD_RATE_LIMIT = positiveInt(uploadsConfig, "rate_limit_per_15min");
+export const UPLOAD_RATE_WINDOW_MS = 15 * 60 * 1000;
 
 interface AllowedType {
   contentType: string;

@@ -20,7 +20,7 @@ Installed by `bun run shibumi add uploads`. Needs the auth extension (every rout
 ## Validation and storage
 
 - Type is decided by sniffing magic bytes, never the client filename or `Content-Type`. Allowlist: PNG, JPEG, GIF, WebP, PDF. Extend `ALLOWED_TYPES` in `src/lib/uploads.ts`; every entry must carry a byte signature.
-- Limits: 10 MiB per file (`MAX_FILE_BYTES`), 5 files per request (`MAX_FILES_PER_REQUEST`), a 100 MiB per-user total (`USER_QUOTA_BYTES`), and 30 upload requests per user per 15 minutes. The oversize and quota checks run before each file is buffered.
+- Limits live in `src/config/uploads.yaml` (bundled at build): `max_file_mib` (default 5), `max_files_per_request` (5), `user_quota_mib` (100), `rate_limit_per_15min` (30). `src/lib/uploads.ts` validates them at startup and refuses to boot on a bad value. Edit the YAML and re-deploy to change a limit. The oversize and quota checks run before each file is buffered.
 - Type sniffing matches leading magic bytes only, so a crafted polyglot could carry a valid header. That is why serving forces `attachment` + `nosniff` and never renders inline; do not weaken that (see below). Re-encode images if you need stronger guarantees.
 - On-disk name is `sha256(content).<sniffed-ext>`, so it can never contain a path separator or traversal segment, and identical bytes are stored once. The original filename is kept as display metadata only, sanitized.
 - Bytes live under `<db-dir>/uploads` (derived from `DB_PATH`, so the container's `/data` volume); metadata is the `uploads` table.
@@ -28,7 +28,7 @@ Installed by `bun run shibumi add uploads`. Needs the auth extension (every rout
 
 ## Request size
 
-Installing uploads raises `maxRequestBodySize` in `src/server.ts` to 55 MiB (5 x 10 MiB plus multipart overhead). Removal restores 1 MiB. Adjust both the server value and the per-file/per-request limits together if you change the caps. Because that global ceiling now admits large bodies, the auth extension caps its own JSON routes by `Content-Length` independently; keep that guard on any small-body route you add.
+Installing uploads raises `maxRequestBodySize` in `src/server.ts` to a fixed 55 MiB. That is the hard server ceiling and is generous headroom over the default limits; if you raise `max_file_mib` x `max_files_per_request` above ~55 MiB in the config, raise this server value to match or the server rejects the body first. Removal restores 1 MiB. Because that ceiling admits large bodies, the auth extension caps its own JSON routes by an actual-bytes read independently; keep that guard on any small-body route you add.
 
 ## Serving untrusted files
 

@@ -8,14 +8,13 @@ import { rateLimit, requireAuth, type AuthEnv } from "../lib/auth";
 import {
   MAX_FILES_PER_REQUEST,
   MAX_FILE_BYTES,
+  UPLOAD_RATE_LIMIT,
+  UPLOAD_RATE_WINDOW_MS,
   deleteUpload,
   getUpload,
   listUploads,
   saveFiles,
 } from "../lib/uploads";
-
-const UPLOAD_RATE_WINDOW_MS = 15 * 60 * 1000;
-const UPLOAD_RATE_LIMIT = 30; // POST /uploads calls per user per window
 
 export const uploadRoutes = new Hono<AuthEnv>();
 

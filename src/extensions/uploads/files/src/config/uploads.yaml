@@ -1,0 +1,16 @@
+# Uploads extension config. Edit and re-deploy (bun ship) to apply; the values
+# are bundled into the image at build time. These are security limits, so keep
+# them tight. src/lib/uploads.ts validates them at startup and refuses to boot
+# on a bad value.
+
+# Largest single file, in MiB.
+max_file_mib: 5
+
+# Files accepted per upload request.
+max_files_per_request: 5
+
+# Total stored bytes per user, in MiB.
+user_quota_mib: 100
+
+# Upload requests allowed per user per 15 minutes.
+rate_limit_per_15min: 30
