@@ -6,7 +6,7 @@ First release shipped 2026-08-24: `create-shibumi@0.2.0`, tag `v0.2.0`, registry
 
 ## Preconditions (all green)
 
-- CI green on the commit you are publishing (test, check, exec/symlink guards, pack allowlist, web + full-stack + blog acceptance, packed verification, bun-floor job).
+- CI green on the commit you are publishing (test, check, exec/symlink guards, pack allowlist, full-stack + blog acceptance, packed verification, bun-floor job).
 - `bun run verify:packed` green locally; record the printed tarball sha256.
 - `bun run verify:copy` green (site command/script tables match generated output). Run from the `shibumistack.dev` checkout.
 - Latest adversarial security review of the packed artifact + one fixture per path + each extension has no HIGH finding. Two independent passes have been run per diff (codex gpt-5.6-sol, kimi k3); run one more on the exact release tarball if any code changed since.
@@ -22,8 +22,8 @@ First release shipped 2026-08-24: `create-shibumi@0.2.0`, tag `v0.2.0`, registry
    `npm publish --tag next --provenance`
 6. Cold-verify from the registry on a clean machine (no checkout, fresh temp dir):
    - `bun create shibumi@next cold-fs --yes --template full-stack` then `cd cold-fs && bun install && bun test && bun run check && bun run build`
-   - `bunx create-shibumi@next cold-web --yes --template web` and the same acceptance
-   - full-stack: `bun run shibumi add auth --yes`, then `add uploads --yes`, then `add admin --yes`; run `bun test && bun run check && bun run build`. web: `add email --yes`; run tests. Confirm `add uploads`/`add admin` refuse without auth, and removal refuses while a dependent is installed.
+   - `bunx create-shibumi@next cold-blog --yes --template blog` and the same acceptance
+   - full-stack: `bun run shibumi add auth --yes`, then `add uploads --yes`, then `add admin --yes`, then `add email --yes`; run `bun test && bun run check && bun run build`. Confirm `add uploads`/`add admin` refuse without auth, and removal refuses while a dependent is installed.
    - scaffold static and blog; build blog, check artifacts
    - confirm the published tarball digest matches the one `verify:packed` recorded
 7. Promote the verified version to `latest`: `npm dist-tag add create-shibumi@<version> latest`.

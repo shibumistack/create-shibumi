@@ -17,7 +17,6 @@
     "src/templates/static/",
     "src/templates/blog/",
     "src/templates/full-stack/",
-    "src/templates/web/",
     "README.md",
     "LICENSE"
   ],

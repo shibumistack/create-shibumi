@@ -82,27 +82,27 @@ describe("createProject", () => {
   });
 
   it("vendors the locked ship client into templates that use it", async () => {
-    mkdirSync(join(templatesDir, "web"), { recursive: true });
+    mkdirSync(join(templatesDir, "shippable"), { recursive: true });
     writeFileSync(
-      join(templatesDir, "web", "package.json"),
+      join(templatesDir, "shippable", "package.json"),
       `${JSON.stringify({ name: "placeholder", scripts: { ship: "bun scripts/ship.ts" } }, null, 2)}\n`
     );
     writeFileSync(join(templatesDir, "ship.ts"), "// vendored ship fixture\n");
-    const { dest } = await createProject(opts({ template: "web" as const }), okRun);
+    const { dest } = await createProject(opts({ template: "shippable" as const }), okRun);
     expect(readFileSync(join(dest, "scripts", "ship.ts"), "utf8")).toBe(
       "// vendored ship fixture\n"
     );
   });
 
   it("aborts when a ship-using template lacks the vendored client", async () => {
-    mkdirSync(join(templatesDir, "web"), { recursive: true });
+    mkdirSync(join(templatesDir, "shippable"), { recursive: true });
     writeFileSync(
-      join(templatesDir, "web", "package.json"),
+      join(templatesDir, "shippable", "package.json"),
       `${JSON.stringify({ name: "placeholder", scripts: { ship: "bun scripts/ship.ts" } }, null, 2)}\n`
     );
     let error: unknown;
     try {
-      await createProject(opts({ template: "web" as const }), okRun);
+      await createProject(opts({ template: "shippable" as const }), okRun);
     } catch (err) {
       error = err;
     }
@@ -147,8 +147,8 @@ describe("createProject", () => {
 
   it("fails on a missing template", async () => {
     await expectFailure(
-      createProject(opts({ template: "web" as const }), okRun),
-      'Template "web" is not available'
+      createProject(opts({ template: "shippable" as const }), okRun),
+      'Template "shippable" is not available'
     );
   });
 

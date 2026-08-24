@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 // Plain copy of a template; enough project for the installer, no install/git.
-function fixture(template: "full-stack" | "web"): string {
+function fixture(template: "full-stack" | "static"): string {
   const dest = join(work, `fixture-${template}-${readdirSync(work).length}`);
   cpSync(join(TEMPLATES, template), dest, { recursive: true });
   renameSync(join(dest, "gitignore"), join(dest, ".gitignore"));
@@ -224,7 +224,7 @@ describe("add auth", () => {
   });
 
   it("refuses on a database-less project with the documented message", async () => {
-    const root = fixture("web");
+    const root = fixture("static");
     const run = await cli(root, ["add", "auth", "--yes"]);
     expect(run.code).toBe(1);
     expect(run.err).toContain("needs the project database and migrations");
@@ -304,24 +304,19 @@ describe("remove auth", () => {
 });
 
 describe("email extension", () => {
-  it("adds and removes cleanly on the web template", async () => {
-    const root = fixture("web");
+  it("adds and removes cleanly on the full-stack template", async () => {
+    const root = fixture("full-stack");
     const digest = treeDigest(root);
     expect((await cli(root, ["add", "email", "--yes"])).code).toBe(0);
     const envTs = readFileSync(join(root, "src", "env.ts"), "utf8");
     expect(envTs).toContain("RESEND_API_KEY");
+    expect(envTs).toContain("RESEND_WEBHOOK_SECRET");
     expect(existsSync(join(root, "src", "lib", "email.ts"))).toBe(true);
     expect(existsSync(join(root, "test", "email.test.ts"))).toBe(true);
     expect(readFileSync(join(root, "agents.md"), "utf8")).toContain("<!-- shibumi:ext:email -->");
 
     expect((await cli(root, ["remove", "email", "--yes"])).code).toBe(0);
     expect(treeDigest(root)).toBe(digest);
-  });
-
-  it("installs on the full-stack template too", async () => {
-    const root = fixture("full-stack");
-    expect((await cli(root, ["add", "email", "--yes"])).code).toBe(0);
-    expect(readFileSync(join(root, "src", "env.ts"), "utf8")).toContain("RESEND_WEBHOOK_SECRET");
   });
 });
 

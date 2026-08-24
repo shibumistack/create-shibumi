@@ -15,7 +15,7 @@ if (!existsSync(join(SITE, "shibumi.css"))) {
   console.error(`canonical shibumi.css not found in ${SITE}; pass the site checkout as the first argument.`);
   process.exit(1);
 }
-for (const template of ["web", "full-stack"]) {
+for (const template of ["full-stack"]) {
   for (const file of FILES) {
     const target = join(ROOT, "src", "templates", template, "public", "vendor", file);
     copyFileSync(join(SITE, file), target);

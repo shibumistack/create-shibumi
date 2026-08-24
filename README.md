@@ -10,16 +10,16 @@ bun dev
 
 ## Three starting points
 
-1. **Static site**: publish a verified build directory such as `./dist`, `public`, `build`, or `out` from any framework.
-2. **Bun web**: Hono, HTML, CSS, Alpine, Zod, tests, and a health endpoint.
-3. **SQLite full stack**: the Bun web project plus Drizzle, migrations, persistent data, backup, and restore.
+1. **Bun full-stack app**: Hono, HTML, CSS, Alpine, Zod, tests, a health endpoint, and SQLite through Drizzle with migrations, persistent data, backup, and restore.
+2. **Blog**: Astro with posts, RSS, sitemap, SEO meta, and llms.txt.
+3. **Static site**: publish a verified build directory such as `./dist`, `public`, `build`, or `out` from any framework.
 
 All three deploy to a Linux VPS or homelab through [shibumi-server](https://server.shibumistack.dev). Other providers can wait until their generated projects pass the same artifact and deployment tests.
 
 ## Flags
 
 ```text
---template <id>       static, web, or full-stack
+--template <id>       full-stack, blog, or static
 --yes, -y             non-interactive; requires name and --template
 --no-git              skip git init
 --no-install          skip dependency install

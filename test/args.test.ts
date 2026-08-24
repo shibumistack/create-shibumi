@@ -23,9 +23,9 @@ describe("parseArgs", () => {
   });
 
   it("parses name, template, and opt-outs", () => {
-    const a = ok(["my-app", "--template", "web", "--no-git", "--no-install"]);
+    const a = ok(["my-app", "--template", "blog", "--no-git", "--no-install"]);
     expect(a.name).toBe("my-app");
-    expect(a.template).toBe("web");
+    expect(a.template).toBe("blog");
     expect(a.git).toBe(false);
     expect(a.install).toBe(false);
   });
@@ -58,6 +58,12 @@ describe("parseArgs", () => {
 
   it("rejects unknown templates", () => {
     expect(err(["--template", "docs"])).toContain('Unknown template "docs"');
+  });
+
+  it("rejects the deleted web template", () => {
+    expect(err(["--template", "web"])).toBe(
+      'Unknown template "web". Available: static, full-stack, blog.'
+    );
   });
 
   it("rejects extra positionals", () => {

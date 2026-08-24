@@ -99,8 +99,8 @@ async function main(): Promise<void> {
           label: `Bun full-stack app ${dim("(recommended)")}${detail("Hono, Alpine, and SQLite with migrations and backups")}`,
         },
         {
-          value: "web" as TemplateId,
-          label: `Bun web app${detail("Hono, Alpine, and Zod; no database")}`,
+          value: "blog" as TemplateId,
+          label: `Blog${detail("Astro: posts, RSS, sitemap, SEO meta, llms.txt")}`,
         },
         {
           value: "static" as TemplateId,
@@ -110,26 +110,6 @@ async function main(): Promise<void> {
     });
     if (isCancel(answer)) exitCancelled();
     template = answer as TemplateId;
-    if (template === "static") {
-      const start = await select({
-        message: "Start from?",
-        options: [
-          {
-            value: "static" as TemplateId,
-            label: `Plain files${detail("index.html and friends in public/")}`,
-          },
-          {
-            value: "blog" as TemplateId,
-            label: `Astro blog${detail("posts, RSS, sitemap, SEO meta, llms.txt, markdown alternates")}`,
-          },
-        ],
-      });
-      if (isCancel(start)) exitCancelled();
-      template = start as TemplateId;
-      if (template === "static") {
-        log.info("Using a generator? Point bun ship:setup at its output directory later.");
-      }
-    }
   }
 
   let deployNow = false;

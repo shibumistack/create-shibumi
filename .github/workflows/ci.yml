@@ -30,7 +30,7 @@ jobs:
           node -e '
             const files = require("/tmp/pack.json")[0].files.map(f => f.path);
             const bad = files.filter(p =>
-              !/^(LICENSE$|README\.md$|package\.json$|scripts\/(ship|shibumi)\.lock\.json$|src\/(cli|args|create)\.ts$|src\/templates\/(ship|shibumi)\.ts$|src\/templates\/(static|web|full-stack|blog)\/)/.test(p)
+              !/^(LICENSE$|README\.md$|package\.json$|scripts\/(ship|shibumi)\.lock\.json$|src\/(cli|args|adopt|create)\.ts$|src\/templates\/(ship|shibumi)\.ts$|src\/templates\/(static|full-stack|blog)\/)/.test(p)
               || /(^|\/)(\.env|id_rsa|.*\.(pem|key|p12))$/.test(p));
             if (bad.length) { console.error("unexpected packed files:", bad); process.exit(1); }
             const required = [
@@ -40,9 +40,6 @@ jobs:
               "scripts/ship.lock.json",
               "scripts/shibumi.lock.json",
               "src/templates/static/gitignore",
-              "src/templates/web/gitignore",
-              "src/templates/web/.dockerignore",
-              "src/templates/web/bun.lock",
               "src/templates/blog/gitignore",
               "src/templates/blog/bun.lock",
               "src/templates/blog/public/og-default.png",
@@ -54,33 +51,11 @@ jobs:
               "src/templates/full-stack/Dockerfile",
               "src/templates/full-stack/compose.yaml",
               "src/templates/full-stack/scripts/db.ts",
-              "src/templates/web/public/vendor/alpine-csp-3.16.2.min.js",
+              "src/templates/full-stack/public/vendor/alpine-csp-3.16.2.min.js",
             ];
             const missing = required.filter(p => !files.includes(p));
             if (missing.length) { console.error("required files missing from pack:", missing); process.exit(1); }
           '
-      - name: web template acceptance (scaffold, test, check, build, image)
-        run: |
-          cd "$(mktemp -d)"
-          bun "$GITHUB_WORKSPACE/src/cli.ts" fixture-web --yes --template web --no-git
-          cd fixture-web
-          bun test
-          bun run check
-          # email extension cycle: add, prove, remove, prove clean
-          bun run shibumi add email --yes
-          grep -q RESEND_API_KEY src/env.ts
-          bun test
-          bun run check
-          bun run shibumi remove email --yes
-          test ! -f src/lib/email.ts
-          bun test
-          bun run build
-          docker build -t fixture-web .
-          docker run -d --rm --name fixture-web -p 127.0.0.1:39132:3000 fixture-web
-          sleep 3
-          wget -q -T 5 -O - http://127.0.0.1:39132/healthz | grep -q '"ok":true'
-          test "$(docker exec fixture-web whoami)" = "bun"
-          docker rm -f fixture-web
       - name: full-stack template acceptance (scaffold, test, image, persistence)
         run: |
           cd "$(mktemp -d)"
@@ -96,6 +71,14 @@ jobs:
           test -f src/db/migrations/0002_auth.sql
           bun test
           bun run check
+          # email extension cycle: add, prove, remove, prove clean
+          bun run shibumi add email --yes
+          grep -q RESEND_API_KEY src/env.ts
+          bun test
+          bun run check
+          bun run shibumi remove email --yes
+          test ! -f src/lib/email.ts
+          bun test
           bun run build
           docker build -t fixture-data .
           docker volume create fsvol

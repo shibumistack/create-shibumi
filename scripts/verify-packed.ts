@@ -33,7 +33,7 @@ import { join, relative, resolve, sep } from "node:path";
 
 const REPO = resolve(import.meta.dir, "..");
 const KEEP = process.argv.includes("--keep");
-const TEMPLATE_IDS = ["full-stack", "web", "static", "blog"] as const;
+const TEMPLATE_IDS = ["full-stack", "static", "blog"] as const;
 type TemplateId = (typeof TEMPLATE_IDS)[number];
 
 class VerifyError extends Error {
@@ -294,7 +294,7 @@ function main(): void {
   for (const id of TEMPLATE_IDS) {
     const dir = scaffold(id);
 
-    if (id === "full-stack" || id === "web") {
+    if (id === "full-stack") {
       must(`accept:${id}`, ["bun", "test"], dir);
       must(`accept:${id}`, ["bun", "run", "check"], dir);
       must(`accept:${id}`, ["bun", "run", "build"], dir);
@@ -303,7 +303,7 @@ function main(): void {
       }
       // Order matters: uploads dependsOn auth, so auth is added first and
       // removed last (the cycle removes in reverse).
-      extensionCycle(id, dir, id === "full-stack" ? ["auth", "email", "uploads", "admin"] : ["email"]);
+      extensionCycle(id, dir, ["auth", "email", "uploads", "admin"]);
     }
 
     if (id === "static") {
@@ -347,7 +347,7 @@ function main(): void {
   mkdirSync(join(conflictDir, "nested"), { recursive: true });
   const sentinel = join(conflictDir, "nested", "keep.txt");
   writeFileSync(sentinel, "must survive\n");
-  const existing = run([cli, "conflict-target", "--yes", "--template", "web", "--no-git", "--no-install"], fixturesDir);
+  const existing = run([cli, "conflict-target", "--yes", "--template", "full-stack", "--no-git", "--no-install"], fixturesDir);
   if (existing.code !== 1 || !existing.stderr.includes("already exists")) {
     fail(failStep, `existing-destination scaffold: expected exit 1 naming the conflict, got ${existing.code}:\n${existing.stderr}`);
   }
@@ -360,7 +360,7 @@ function main(): void {
 
   for (const flag of ["--nope", "--spa", "--output-dir=dist", "--build-script=build"]) {
     const name = "flag-check";
-    const result = run([cli, name, "--yes", "--template", "web", flag], fixturesDir);
+    const result = run([cli, name, "--yes", "--template", "full-stack", flag], fixturesDir);
     const bare = flag.split("=")[0]!;
     if (result.code !== 2) fail(failStep, `${flag} exited ${result.code}, expected 2`);
     if (!result.stderr.includes(`Unknown flag: ${bare}`)) {

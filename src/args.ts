@@ -1,4 +1,4 @@
-export const TEMPLATES = ["static", "web", "full-stack", "blog"] as const;
+export const TEMPLATES = ["static", "full-stack", "blog"] as const;
 export type TemplateId = (typeof TEMPLATES)[number];
 
 export interface ParsedArgs {
@@ -151,7 +151,7 @@ Usage
   bunx create-shibumi [name] [flags]
 
 Flags
-  --template <id>       static, web, full-stack, or blog
+  --template <id>       full-stack, blog, or static
   --yes, -y             non-interactive; requires name and --template
   --no-git              skip git init
   --no-install          skip dependency install

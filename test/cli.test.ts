@@ -58,7 +58,7 @@ describe("cli", () => {
     const r = runCli(["my-app", "--yes"]);
     expect(r.code).toBe(2);
     expect(r.stderr).toBe(
-      "--yes requires --template (static, web, full-stack, blog).\nRun create-shibumi --help for usage.\n"
+      "--yes requires --template (static, full-stack, blog).\nRun create-shibumi --help for usage.\n"
     );
   });
 
@@ -99,7 +99,14 @@ describe("cli", () => {
     expect(existsSync(join(work, "my-app"))).toBe(true);
   });
 
-  it("scaffolds the full-stack template with database tooling", () => {
+  it("refuses the deleted web template with exit 2", () => {
+    const r = runCli(["web-app", "--yes", "--template", "web", "--no-install"]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain('Unknown template "web"');
+    expect(existsSync(join(work, "web-app"))).toBe(false);
+  });
+
+  it("scaffolds the full-stack template with database tooling and the byte-locked ship client", () => {
     const r = runCli(["data-app", "--yes", "--template", "full-stack", "--no-install"]);
     expect(r.code).toBe(0);
     const dest = join(work, "data-app");
@@ -108,9 +115,13 @@ describe("cli", () => {
       "compose.yaml",
       "Dockerfile",
       ".dockerignore",
+      ".gitignore",
       "drizzle.config.ts",
       "scripts/ship.ts",
       "scripts/db.ts",
+      "src/app.ts",
+      "src/server.ts",
+      "src/env.ts",
       "src/db/schema.ts",
       "src/db/lifecycle.ts",
       "src/db/migrations/0001_notes.sql",
@@ -118,35 +129,11 @@ describe("cli", () => {
     ]) {
       expect(existsSync(join(dest, file))).toBe(true);
     }
-    const pkg = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
-    expect(pkg.scripts["db:migrate"]).toBe("bun scripts/db.ts migrate");
-  });
-
-  it("scaffolds the web template with the byte-locked ship client", () => {
-    const r = runCli(["web-app", "--yes", "--template", "web", "--no-install"]);
-    expect(r.code).toBe(0);
-    const dest = join(work, "web-app");
-    for (const file of [
-      "agents.md",
-      "package.json",
-      "tsconfig.json",
-      "Dockerfile",
-      "compose.yaml",
-      ".dockerignore",
-      ".gitignore",
-      "scripts/ship.ts",
-      "src/app.ts",
-      "src/server.ts",
-      "src/env.ts",
-      "public/app.js",
-      "test/app.test.ts",
-    ]) {
-      expect(existsSync(join(dest, file))).toBe(true);
-    }
     const vendored = readFileSync(new URL("../src/templates/ship.ts", import.meta.url), "utf8");
     expect(readFileSync(join(dest, "scripts", "ship.ts"), "utf8")).toBe(vendored);
     const pkg = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
-    expect(pkg.name).toBe("web-app");
+    expect(pkg.name).toBe("data-app");
+    expect(pkg.scripts["db:migrate"]).toBe("bun scripts/db.ts migrate");
     expect(pkg.scripts["ship:status"]).toBe("bun scripts/ship.ts --status");
     expect(pkg.scripts.check).toBe("tsc --noEmit");
   });
