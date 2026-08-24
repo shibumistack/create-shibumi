@@ -11,6 +11,9 @@ const CLACK_VERSION = (
 export interface DetectedOutput {
   framework: string;
   outputDir: string;
+  // "framework" means a build tool named the directory; "directory" means the
+  // directory was simply there, which a Bun server app's dist/ also satisfies.
+  source: "framework" | "directory";
 }
 
 /**
@@ -28,16 +31,17 @@ export function detectBuildOutput(input: {
   const config = (base: string) =>
     ["js", "mjs", "cjs", "ts"].some((extension) => file(`${base}.${extension}`));
 
-  if (dep("astro") || config("astro.config")) return { framework: "Astro", outputDir: "dist" };
+  const framework = (name: string, outputDir: string): DetectedOutput => ({ framework: name, outputDir, source: "framework" });
+  if (dep("astro") || config("astro.config")) return framework("Astro", "dist");
   if (dep("@11ty/eleventy") || config(".eleventy") || config("eleventy.config")) {
-    return { framework: "Eleventy", outputDir: "_site" };
+    return framework("Eleventy", "_site");
   }
-  if (dep("next") || config("next.config")) return { framework: "Next.js", outputDir: "out" };
-  if (dep("vite") || config("vite.config")) return { framework: "Vite", outputDir: "dist" };
+  if (dep("next") || config("next.config")) return framework("Next.js", "out");
+  if (dep("vite") || config("vite.config")) return framework("Vite", "dist");
   for (const candidate of ["dist", "_site", "out", "build"]) {
-    if (file(candidate)) return { framework: "existing build output", outputDir: candidate };
+    if (file(candidate)) return { framework: "existing build output", outputDir: candidate, source: "directory" };
   }
-  if (file("public")) return { framework: "plain files", outputDir: "public" };
+  if (file("public")) return { framework: "plain files", outputDir: "public", source: "directory" };
   return undefined;
 }
 

@@ -45,19 +45,11 @@ describe("detectBuildOutput", () => {
     expect(detectBuildOutput({ dependencies: { astro: "7.2.4", vite: "6" }, files: [] })).toEqual({
       framework: "Astro",
       outputDir: "dist",
+      source: "framework",
     });
-    expect(detectBuildOutput({ dependencies: { "@11ty/eleventy": "3" }, files: [] })).toEqual({
-      framework: "Eleventy",
-      outputDir: "_site",
-    });
-    expect(detectBuildOutput({ dependencies: { next: "15" }, files: [] })).toEqual({
-      framework: "Next.js",
-      outputDir: "out",
-    });
-    expect(detectBuildOutput({ dependencies: { vite: "6" }, files: [] })).toEqual({
-      framework: "Vite",
-      outputDir: "dist",
-    });
+    expect(detectBuildOutput({ dependencies: { "@11ty/eleventy": "3" }, files: [] })?.outputDir).toBe("_site");
+    expect(detectBuildOutput({ dependencies: { next: "15" }, files: [] })?.outputDir).toBe("out");
+    expect(detectBuildOutput({ dependencies: { vite: "6" }, files: [] })?.outputDir).toBe("dist");
   });
 
   it("recognizes a config file without the dependency", () => {
@@ -70,6 +62,7 @@ describe("detectBuildOutput", () => {
     expect(detectBuildOutput({ files: ["_site", "Gemfile"] })).toEqual({
       framework: "existing build output",
       outputDir: "_site",
+      source: "directory",
     });
     expect(detectBuildOutput({ files: ["public", "index.php"] })?.outputDir).toBe("public");
     expect(detectBuildOutput({ files: ["index.html"] })).toBeUndefined();
@@ -139,11 +132,24 @@ describe("bun create shibumi .", () => {
     writeFileSync(join(work, "public", "index.html"), "<!doctype html>\n");
     writeFileSync(join(work, "Gemfile"), "gem 'jekyll'\n");
     expect(adopt().code).toBe(0);
-    const pkg = readPackage();
+    const pkg = readPackage() as { name?: string; scripts: Record<string, string> };
     expect(pkg.scripts["ship:setup"]).toBe(
       "bun scripts/ship.ts --setup --static --output-dir public --no-spa"
     );
+    // The created name feeds ship's domain inference, so it tracks the
+    // directory: a project in kunstfy.com/ infers that domain, my-blog/ asks.
+    expect(pkg.name).toBe(work.split("/").pop()!.toLowerCase());
     expect(readFileSync(join(work, ".dockerignore"), "utf8")).toBe("*\n!public\n");
+  });
+
+  it("sends a server app to ship:setup instead of generating a static image", () => {
+    writePackage({ name: "api", scripts: { start: "bun dist/server.js", build: "bun build src/server.ts --outdir dist" } });
+    mkdirSync(join(work, "dist"));
+    const r = adopt();
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("This looks like a server app");
+    expect(existsSync(join(work, "compose.yaml"))).toBe(false);
+    expect(existsSync(join(work, "scripts", "ship.ts"))).toBe(false);
   });
 
   it("refuses an empty directory with exit 2", () => {

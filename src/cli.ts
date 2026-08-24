@@ -94,6 +94,15 @@ async function adoptExisting(args: ParsedArgs): Promise<void> {
     dependencies: { ...pkg.dependencies, ...pkg.devDependencies },
     files: entries,
   });
+  // Adopt generates the static image. A server app's dist/ looks exactly like
+  // a build directory, so a start script with no build tool behind it goes to
+  // ship:setup instead, which owns server deployment files.
+  if (pkg.scripts?.start && detected?.source !== "framework") {
+    process.stderr.write(
+      `This looks like a server app (package.json has a start script).\nRun "bun ship:setup" here instead: it generates server deployment files and asks nothing about static output.\n`
+    );
+    process.exit(2);
+  }
   log.info(
     detected
       ? `Existing project found (${detected.framework} detected)`
