@@ -12,7 +12,8 @@
     "ship:setup": "bun scripts/ship.ts --setup --static --output-dir dist --build-script build --no-spa",
     "ship:update": "bun scripts/ship.ts --update",
     "ship:status": "bun scripts/ship.ts --status",
-    "ship:logs": "bun scripts/ship.ts --logs"
+    "ship:logs": "bun scripts/ship.ts --logs",
+    "ship:webhook": "bun scripts/ship.ts --webhook"
   },
   "dependencies": {
     "@astrojs/rss": "4.0.19",

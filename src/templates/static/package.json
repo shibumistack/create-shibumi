@@ -9,7 +9,8 @@
     "ship:setup": "bun scripts/ship.ts --setup --static --output-dir public --no-spa",
     "ship:update": "bun scripts/ship.ts --update",
     "ship:status": "bun scripts/ship.ts --status",
-    "ship:logs": "bun scripts/ship.ts --logs"
+    "ship:logs": "bun scripts/ship.ts --logs",
+    "ship:webhook": "bun scripts/ship.ts --webhook"
   },
   "engines": {
     "bun": ">=1.4.0"

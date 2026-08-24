@@ -15,6 +15,7 @@ bun db:migrate   # backup (when needed), then apply pending migrations
 bun db:backup    # manual VACUUM INTO backup with sha256 sidecar
 bun db:restore <backup>  # offline restore; stop the app first
 bun ship         # build image, upload, deploy via shibumi-server
+bun ship:webhook # opt in to push-to-deploy; --off reverses it
 bun run shibumi add <name>  # install an extension (auth, email); --dry-run previews
 ```
 

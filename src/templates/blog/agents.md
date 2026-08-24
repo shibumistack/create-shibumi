@@ -10,6 +10,7 @@ bun run build    # astro build to dist/
 bun run check    # astro check (types + templates)
 bun ship:setup   # configure the deploy target (preconfigured: static, dist/, build script)
 bun ship         # verify dist/, build the static image, upload, deploy
+bun ship:webhook # opt in to push-to-deploy; --off reverses it
 ```
 
 ## Routes and templates

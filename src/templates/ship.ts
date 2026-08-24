@@ -3,9 +3,10 @@
 /**
  * Project-owned client for shibumi-server.
  *
- * `bun ship:setup` connects this repository to one server and creates its
- * deployment trigger. Later, `bun ship` checks local work, pushes one commit,
- * triggers it over SSH by default, and follows status until the app is healthy.
+ * `bun ship:setup` connects this repository to one server and registers the
+ * app. Later, `bun ship` checks local work, pushes one commit, triggers it
+ * over SSH, and follows status until the app is healthy. `bun ship:webhook`
+ * is the opt-in for push-to-deploy; `--off` reverses it.
  *
  * Commit this file and shibumi-server.json. SSH targets stay in machine-local
  * Shibumi config. Webhook secrets stay on the server and pass directly to GitHub CLI.
@@ -25,7 +26,7 @@ const SERVER_HOSTNAME = /^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const SERVER_CLI = "~/.local/bin/shibumi-server";
 const LATEST_SOURCE = "https://shibumistack.dev/ship/latest.ts";
-const CURRENT_SOURCE = "https://shibumistack.dev/ship/v47.ts";
+const CURRENT_SOURCE = "https://shibumistack.dev/ship/v48.ts";
 let sshControlDirectory: string | undefined;
 let sshControlTarget: string | undefined;
 
@@ -87,11 +88,12 @@ interface ShipOptions {
   logs: boolean;
   status: boolean;
   dev: boolean;
+  webhook: boolean;
+  off: boolean;
   rebuild: boolean;
   yes: boolean;
   server?: string;
   domain?: string;
-  trigger?: "ship" | "github-push";
   staticSite: boolean;
   outputDir?: string;
   buildScript?: string;
@@ -105,7 +107,7 @@ export interface StaticSiteConfig {
   spa: boolean;
 }
 
-let options: ShipOptions = { setup: false, update: false, rollback: false, logs: false, status: false, dev: false, rebuild: false, yes: false, staticSite: false, spa: false };
+let options: ShipOptions = { setup: false, update: false, rollback: false, logs: false, status: false, dev: false, webhook: false, off: false, rebuild: false, yes: false, staticSite: false, spa: false };
 let agentRun = false;
 
 export function isAgentExecution(env: NodeJS.ProcessEnv = process.env, stdinTTY = Boolean(process.stdin.isTTY), stdoutTTY = Boolean(process.stdout.isTTY)): boolean {
@@ -147,7 +149,7 @@ function spinner(): ShipSpinner {
 }
 
 export function parseShipArgs(args: string[]): ShipOptions {
-  const parsed: ShipOptions = { setup: false, update: false, rollback: false, logs: false, status: false, dev: false, rebuild: false, yes: false, staticSite: false, spa: false };
+  const parsed: ShipOptions = { setup: false, update: false, rollback: false, logs: false, status: false, dev: false, webhook: false, off: false, rebuild: false, yes: false, staticSite: false, spa: false };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--") continue;
@@ -157,26 +159,26 @@ export function parseShipArgs(args: string[]): ShipOptions {
     else if (argument === "--logs") parsed.logs = true;
     else if (argument === "--status") parsed.status = true;
     else if (argument === "--dev") parsed.dev = true;
+    else if (argument === "--webhook") parsed.webhook = true;
+    else if (argument === "--off") parsed.off = true;
     else if (argument === "--rebuild") parsed.rebuild = true;
     else if (argument === "--yes" || argument === "-y") parsed.yes = true;
     else if (argument === "--static") parsed.staticSite = true;
     else if (argument === "--spa") parsed.spa = true;
     else if (argument === "--no-spa") parsed.noSpa = true;
-    else if (argument === "--server" || argument === "--domain" || argument === "--trigger" || argument === "--output-dir" || argument === "--build-script") {
+    else if (argument === "--server" || argument === "--domain" || argument === "--output-dir" || argument === "--build-script") {
       const value = args[index + 1];
       if (!value || value.startsWith("-")) throw new Error(`${argument} requires a value`);
       if (argument === "--server") parsed.server = value;
       else if (argument === "--domain") parsed.domain = value;
       else if (argument === "--output-dir") parsed.outputDir = value;
-      else if (argument === "--build-script") parsed.buildScript = value;
-      else if (value === "ship" || value === "github-push") parsed.trigger = value;
-      else throw new Error("--trigger must be ship or github-push");
+      else parsed.buildScript = value;
       index += 1;
     } else throw new Error(`unknown ship option: ${argument}`);
   }
-  if ([parsed.setup, parsed.update, parsed.rollback, parsed.logs, parsed.status, parsed.dev].filter(Boolean).length > 1) throw new Error("choose only one ship action");
-  if (parsed.rebuild && (parsed.setup || parsed.update || parsed.rollback || parsed.logs || parsed.status || parsed.dev)) throw new Error("--rebuild applies only to shipping");
-  if (parsed.trigger && !parsed.setup) throw new Error("--trigger requires --setup");
+  if ([parsed.setup, parsed.update, parsed.rollback, parsed.logs, parsed.status, parsed.dev, parsed.webhook].filter(Boolean).length > 1) throw new Error("choose only one ship action");
+  if (parsed.rebuild && (parsed.setup || parsed.update || parsed.rollback || parsed.logs || parsed.status || parsed.dev || parsed.webhook)) throw new Error("--rebuild applies only to shipping");
+  if (parsed.off && !parsed.webhook) throw new Error("--off requires --webhook");
   if (parsed.spa && parsed.noSpa) throw new Error("--spa and --no-spa are mutually exclusive");
   if ((parsed.staticSite || parsed.outputDir || parsed.buildScript || parsed.spa || parsed.noSpa) && !parsed.setup) throw new Error("--static, --output-dir, --build-script, and --spa require --setup");
   if ((parsed.outputDir || parsed.buildScript || parsed.spa || parsed.noSpa) && !parsed.staticSite) throw new Error("--output-dir, --build-script, and --spa require --static");
@@ -838,6 +840,7 @@ const SHIP_SCRIPTS = {
   "ship:update": "bun scripts/ship.ts --update",
   "ship:status": "bun scripts/ship.ts --status",
   "ship:logs": "bun scripts/ship.ts --logs",
+  "ship:webhook": "bun scripts/ship.ts --webhook",
 };
 
 
@@ -1207,7 +1210,7 @@ async function findWebhook(config: ClientConfig): Promise<GitHubWebhook | undefi
 
 // Fetch the secret only when GitHub needs it. It moves through process memory
 // from server output to `gh` input and is never printed or written locally.
-async function ensureWebhook(config: ClientConfig, target: string): Promise<void> {
+async function ensureWebhook(config: ClientConfig, target: string, assumeApproved = false): Promise<void> {
   const existing = await findWebhook(config);
   if (existing && !existing.needsRepair) {
     log.success("GitHub webhook is active");
@@ -1218,7 +1221,7 @@ async function ensureWebhook(config: ClientConfig, target: string): Promise<void
     existing ? "GitHub webhook needs repair" : "GitHub webhook is missing",
     `Repository  ${repository}\nPayload URL ${config.webhookUrl}\nEvents      push\n\nThe secret travels from server to GitHub CLI through memory only.`,
   );
-  if (!existing && !await approve("Create webhook with GitHub CLI?")) throw new Error(`Next: review ${config.webhookUrl} at https://github.com/${repository}/settings/hooks`);
+  if (!existing && !assumeApproved && !await approve("Create webhook with GitHub CLI?")) throw new Error(`Next: review ${config.webhookUrl} at https://github.com/${repository}/settings/hooks`);
   if (existing) log.info("Refreshing webhook secret from server configuration");
   const secretResult = await ssh(target, ["env", "SHIBUMI_SKIP_UPDATE_CHECK=1", SERVER_CLI, "webhook-secret", config.appId]);
   const secretValue: unknown = JSON.parse(secretResult.stdout);
@@ -1257,7 +1260,7 @@ async function ensureWebhook(config: ClientConfig, target: string): Promise<void
   throw new Error(`GitHub webhook is configured but not reachable yet.\n\nNext: confirm ${config.domain} DNS and TLS, then run bun ship:setup. For proxied Cloudflare domains, use Full (strict) SSL/TLS mode.\n\nGitHub: https://github.com/${repository}/settings/hooks`);
 }
 
-async function disableWebhook(config: ClientConfig): Promise<void> {
+async function disableWebhook(config: ClientConfig, assumeApproved = false): Promise<void> {
   const repository = config.repository.slice("github:".length);
   const settings = `https://github.com/${repository}/settings/hooks`;
   if (!Bun.which("gh") || (await run(["gh", "auth", "status", "-h", "github.com"], { allowFailure: true })).exitCode !== 0) {
@@ -1274,8 +1277,10 @@ async function disableWebhook(config: ClientConfig): Promise<void> {
     log.success("GitHub webhook is disabled");
     return;
   }
-  explain("Disable deploy-on-push", `Repository  ${repository}\nPayload URL ${config.webhookUrl}\n\nGit pushes will stop changing production. Run bun ship to deploy.`);
-  if (!await approve("Disable GitHub webhook?")) throw new Error("webhook change cancelled");
+  if (!assumeApproved) {
+    explain("Disable deploy-on-push", `Repository  ${repository}\nPayload URL ${config.webhookUrl}\n\nGit pushes will stop changing production. Run bun ship to deploy.`);
+    if (!await approve("Disable GitHub webhook?")) throw new Error("webhook change cancelled");
+  }
   const result = await run(["gh", "api", "-X", "PATCH", `repos/${repository}/hooks/${existing.id}`, "--input", "-"], {
     input: JSON.stringify({ active: false }), allowFailure: true,
   });
@@ -1299,20 +1304,45 @@ async function setDeploymentMode(config: ClientConfig, target: string, trigger: 
   return { ...validateConfig(JSON.parse(downloaded.stdout)), trigger };
 }
 
-async function selectTrigger(current: ClientConfig["trigger"], force: boolean): Promise<ClientConfig["trigger"]> {
-  if (options.trigger) return options.trigger;
-  if (!force || options.yes || agentRun) return current;
-  log.info(`Current deployment: ${current === "ship" ? "Run bun ship" : "Every GitHub push"}`);
-  const answer = await select({
-    message: "How do you want to deploy?",
-    initialValue: current,
-    options: [
-      { value: "ship", label: "Run bun ship", hint: "recommended" },
-      { value: "github-push", label: "Deploy every GitHub push" },
-    ],
-  });
-  if (isCancel(answer)) throw new Error("setup cancelled");
-  return answer as ClientConfig["trigger"];
+// Opt-in push-to-deploy. Setup never creates a webhook: with the default
+// `bun ship` trigger it buys nothing, and it costs a GitHub sign-in plus an
+// admin:repo_hook grant. This command pays that cost only when asked, and
+// --off reverses both halves (webhook and trigger).
+async function runWebhook(): Promise<void> {
+  intro(`渋み  ship webhook${options.off ? " --off" : ""}`);
+  try {
+    const config = await readConfig();
+    if (!config) throw new Error("Shibumi setup is missing.\n\nNext: run bun ship:setup.");
+    const target = await projectTarget(config);
+    if (options.off) {
+      if (config.trigger !== "github-push") {
+        outro("Push-to-deploy is already off. Deploys run on: bun ship");
+        return;
+      }
+      const updated = await setDeploymentMode({ ...config, trigger: "ship" }, target, "ship");
+      await writeFile(configPath, `${JSON.stringify(updated, null, 2)}\n`);
+      await disableWebhook(updated, true);
+      await offerSetupCommit(updated);
+      outro(`Pushes no longer deploy. Deploys run on: bun ship`);
+      return;
+    }
+    if (!Bun.which("gh")) throw new Error("Push-to-deploy needs the GitHub CLI.\n\nNext: install gh from https://cli.github.com, then run bun ship:webhook.");
+    explain(
+      "Push-to-deploy",
+      `Every push to ${config.branch} deploys ${config.domain} automatically.\nThe webhook secret travels from server to GitHub CLI through memory only.`,
+    );
+    await ensureGitHubAuth();
+    if (!await approve("Install webhook and switch to push-to-deploy?")) {
+      throw new Error("Next: run bun ship:webhook when you want pushes to deploy.");
+    }
+    await ensureWebhook(config, target, true);
+    const updated = await setDeploymentMode({ ...config, trigger: "github-push" }, target, "github-push");
+    await writeFile(configPath, `${JSON.stringify(updated, null, 2)}\n`);
+    await offerSetupCommit(updated);
+    outro(`git push origin ${updated.branch} now deploys. Undo: bun ship:webhook --off`);
+  } finally {
+    await closeSshControl();
+  }
 }
 
 async function setup(force: boolean): Promise<{ config: ClientConfig; target: string; changed: boolean } | undefined> {
@@ -1326,13 +1356,13 @@ async function setup(force: boolean): Promise<{ config: ClientConfig; target: st
   if (force || !config) config = await remoteSetup(target, force, config);
   if (!config) throw new Error("deployment setup did not return client configuration");
   await rememberSshTarget(config.server.hostname, target);
-  const trigger = await selectTrigger(previous?.trigger ?? config.trigger, force);
+  // Projects set up before ship:webhook existed keep their github-push
+  // trigger; new ones deploy on bun ship until ship:webhook says otherwise.
+  const trigger = previous?.trigger ?? "ship";
   config = await setDeploymentMode({ ...config, trigger }, target, trigger);
   if (force) {
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
-    if (trigger === "github-push") await ensureWebhook(config, target);
-    else if (previous) await disableWebhook(config);
-    else log.success("Deployments run through bun ship");
+    if (trigger === "ship") log.success("Deployments run through bun ship");
   }
   return { config, target, changed: !previous || JSON.stringify(previous) !== JSON.stringify(config) };
 }
@@ -1823,7 +1853,8 @@ export async function runShip(): Promise<void> {
       outro(`${accent("Next:")} review and commit Shibumi setup files, then run bun ship.`);
       return;
     }
-    if (forceSetup || result.changed) {
+    const firstRun = forceSetup || result.changed;
+    if (firstRun) {
       // Setup succeeded with everything committed, so the first deploy is one
       // Enter away. Offer it here instead of ending on "Next: bun ship".
       // Only for direct-ship triggers in an interactive run: github-push
@@ -1832,7 +1863,9 @@ export async function runShip(): Promise<void> {
         ? await confirm({ message: "Ship now?", initialValue: true })
         : false;
       if (shipNow !== true || isCancel(shipNow)) {
-        outro(`${accent("Next:")} ${result.config.trigger === "github-push" ? `git push origin ${result.config.branch} to deploy` : "bun ship"}`);
+        outro(result.config.trigger === "github-push"
+          ? `${accent("Next:")} git push origin ${result.config.branch} to deploy`
+          : `${accent("Next:")} bun ship\n      Prefer push-to-deploy? bun ship:webhook`);
         return;
       }
     }
@@ -1865,7 +1898,9 @@ export async function runShip(): Promise<void> {
     const complete = spinner();
     complete.start("Finishing ship");
     complete.stop(`Shipped in ${formatDuration(Date.now() - startedAt)} (--rollback if needed)`);
-    outro(`https://${result.config.domain}`);
+    outro(firstRun && result.config.trigger === "ship"
+      ? `Live at https://${result.config.domain}\n      Deploys run on: bun ship. Prefer push-to-deploy? bun ship:webhook`
+      : `https://${result.config.domain}`);
   } finally {
     await closeSshControl();
   }
@@ -1876,7 +1911,7 @@ export function immutableShipSource(source: string): string | undefined {
 }
 
 export function shouldCheckForShipUpdate(value: ShipOptions): boolean {
-  return !(value.setup || value.update || value.rollback || value.logs || value.status || value.dev);
+  return !(value.setup || value.update || value.rollback || value.logs || value.status || value.dev || value.webhook);
 }
 
 async function runLatestShipClient(args: string[]): Promise<boolean> {
@@ -2063,6 +2098,7 @@ export function runShipCli(): void {
     : options.logs ? showLogs()
     : options.status ? showStatus()
     : options.dev ? runDev()
+    : options.webhook ? runWebhook()
     : runShip();
   action.catch((error) => {
     cancel(error instanceof Error ? error.message : String(error));
