@@ -89,7 +89,7 @@ body {
   border-top: 1px solid var(--line);
 }
 
-main .endpoints a {
+main .endpoints a:not(.btn):not(.button) {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -101,13 +101,12 @@ main .endpoints a {
   transition: background 160ms ease;
 }
 
-main .endpoints a:hover,
-main .endpoints a:focus-visible {
+main .endpoints a:not(.btn):not(.button):hover,
+main .endpoints a:not(.btn):not(.button):focus-visible {
   background: var(--faint);
 }
 
-.endpoint-path {
-  font-family: var(--font-mono);
+main .endpoints code {
   font-size: var(--text-sm);
 }
 /* Inline code as rounded chips on the faint layer. */
@@ -120,7 +119,7 @@ main .endpoints a:focus-visible {
 }
 
 
-main .endpoints a:hover .endpoint-path {
+main .endpoints a:hover code {
   color: var(--accent);
 }
 

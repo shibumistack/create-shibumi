@@ -81,8 +81,8 @@ const page = `<!doctype html>
         <span class="demo-hint">client state without a build step</span>
       </section>
       <ul class="endpoints">
-        <li><a href="/api/hello?name=you"><span class="endpoint-path">GET /api/hello</span><span>query validated with Zod</span></a></li>
-        <li><a href="/healthz"><span class="endpoint-path">GET /healthz</span><span>the check every deploy waits for</span></a></li>
+        <li><a href="/api/hello?name=you"><code>GET /api/hello</code><span>query validated with Zod</span></a></li>
+        <li><a href="/healthz"><code>GET /healthz</code><span>the check every deploy waits for</span></a></li>
       </ul>
       <footer class="colophon">
         <p>This page lives in <code>src/app.ts</code>. House rules for coding agents are in <code>agents.md</code>. Add features with <code>bun shi add email</code>.</p>
