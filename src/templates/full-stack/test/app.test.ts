@@ -84,9 +84,17 @@ describe("routes", () => {
     probe.get("/__boom", () => {
       throw new Error("test explosion");
     });
-    const res = await probe.fetch(new Request("http://localhost/__boom"));
-    expect(res.status).toBe(500);
-    expectSecurityHeaders(res);
+    // onError logs the exception before answering; silence it so the
+    // deliberate explosion does not read as a failure in test output.
+    const errorLog = console.error;
+    console.error = () => {};
+    try {
+      const res = await probe.fetch(new Request("http://localhost/__boom"));
+      expect(res.status).toBe(500);
+      expectSecurityHeaders(res);
+    } finally {
+      console.error = errorLog;
+    }
   });
 });
 
