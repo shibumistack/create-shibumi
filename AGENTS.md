@@ -26,3 +26,12 @@ bun sync:ship   # re-vendor Ship client from the locked immutable snapshot
 - Atomic creation invariants: exclusive mkdtemp temp sibling, mkdir-reserved rename, destination absent on any failure/cancel/signal, existing paths never touched, git never stages or commits.
 - Exit codes: 0 success, 1 runtime failure, 2 usage error, 130 SIGINT, 143 SIGTERM.
 - Security gates from the release plan are hard blocks: no unauthenticated mutation endpoints in templates, adversarial review before any publish, HIGH findings block.
+
+## Gotchas
+
+- `bun build` inlines `process.env.NODE_ENV` at build time (defaults to "development"), so the runtime container `ENV NODE_ENV=production` is ignored in bundled code. Read `process.env["NODE_ENV"]` (bracket form) to force a runtime lookup. Caught only by running the built container, never by unit tests (they run from source). Extensions gate security behavior on this (auth login-link fail-closed).
+- `bun-types` already declares `*.yaml` and `*.yml` (`export = any`). Do NOT add a `declare module "*.yaml"` shim — it collides (TS2309 "export assignment ... other exported elements"). Just `import cfg from "./x.yaml"`; Bun bundles the parsed value into the image at build.
+- Hono: never hand-compose middleware (e.g. csrf() wrapping requireAuth in one `.use`); the returned Response is dropped and you get a 500 "Context is not finalized". Use separate `.use()` calls. Each `.use()` adds an `ALL /prefix/*` entry to `app.routes`, so mirror the count in route-pin tests.
+- Hono `onError` must re-apply the security-header set AND return `err.getResponse()` for `HTTPException`, else framework 4xx (CSRF 403) collapse to 500. Non-HTTPException stays a logged 500.
+- Extension config: non-secret tunables live in `src/config/<ext>.yaml` (bundled, validated at boot, fail loud on bad value). Secrets/per-deploy config go server-side via `bun ship:env` (never committed YAML). Config file must be imported (not runtime-read): the Dockerfile only copies `dist/`, so import-bundling is the only path into the image.
+- Extensions are copied-in owned code. `bun run shibumi update` re-vendors the installer (via `bunx create-shibumi@latest --print-installer`, checksum-verified) and reports drift; it never overwrites installed files. Per-extension versions recorded in `.shibumi/installed.json` at install.
