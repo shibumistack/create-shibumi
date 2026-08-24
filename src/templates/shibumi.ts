@@ -506,21 +506,22 @@ interface CliIo {
   out: (line: string) => void;
   err: (line: string) => void;
   confirm: (message: string) => Promise<boolean>;
+  // Optional branded emitters; interactive runs wire these to clack so the
+  // installer looks like create and ship. Plain io (tests, pipes) omits them.
+  title?: (line: string) => void;
+  success?: (line: string) => void;
 }
 
 function previewAdd(ext: ExtensionBundle, plan: AddPlan, io: CliIo): void {
-  io.out(`shibumi add ${ext.name}: ${ext.description}`);
-  io.out("");
-  io.out("New files:");
-  for (const file of plan.files) {
-    io.out(`  ${file.to}${plan.conflicts.includes(file.to) ? "  (exists: conflict)" : ""}`);
-  }
-  io.out(`  ${join("agents", `${ext.name}.md`)}`);
+  (io.title ?? io.out)(`shibumi add ${ext.name}: ${ext.description}`);
+  if (!io.title) io.out("");
+  io.out([
+    "New files:",
+    ...plan.files.map((file) => `  ${file.to}${plan.conflicts.includes(file.to) ? "  (exists: conflict)" : ""}`),
+    `  ${join("agents", `${ext.name}.md`)}`,
+  ].join("\n"));
   if (plan.edits.length > 0) {
-    io.out("Edits:");
-    for (const edit of plan.edits) {
-      io.out(`  ${edit.file}: ${edit.kind} at "${edit.find.trim().slice(0, 60)}"`);
-    }
+    io.out(["Edits:", ...plan.edits.map((edit) => `  ${edit.file}: ${edit.kind} at "${edit.find.trim().slice(0, 60)}"`)].join("\n"));
   }
   if (plan.migrationName) io.out(`Migration:\n  ${join(MIGRATIONS_DIR, plan.migrationName)}`);
   const deps = Object.entries(plan.deps);
@@ -529,12 +530,12 @@ function previewAdd(ext: ExtensionBundle, plan: AddPlan, io: CliIo): void {
   }
   if (plan.env.length > 0) io.out(`Environment variables (values stay out of code):\n  ${plan.env.join(", ")}`);
   io.out(`agents.md:\n  + section for ${ext.name} (guide at agents/${ext.name}.md)`);
-  io.out("");
+  if (!io.title) io.out("");
 }
 
 function previewRemove(ext: ExtensionBundle, plan: RemovePlan, io: CliIo): void {
-  io.out(`shibumi remove ${ext.name}`);
-  io.out("");
+  (io.title ?? io.out)(`shibumi remove ${ext.name}`);
+  if (!io.title) io.out("");
   if (plan.deletions.length > 0) io.out(`Delete:\n${plan.deletions.map((file) => `  ${file}`).join("\n")}`);
   if (plan.modified.length > 0) {
     io.out(`Modified since install (kept without --force):\n${plan.modified.map((file) => `  ${file}`).join("\n")}`);
@@ -553,7 +554,7 @@ function previewRemove(ext: ExtensionBundle, plan: RemovePlan, io: CliIo): void 
   }
   io.out("Tables are never dropped by tooling.");
   if (ext.removeNote) io.out(ext.removeNote);
-  io.out("");
+  if (!io.title) io.out("");
 }
 
 async function defaultConfirm(message: string): Promise<boolean> {
@@ -750,7 +751,7 @@ export async function runCli(
       );
       return 1;
     }
-    io.out(`${ext.title} installed. Run: bun test && bun run check`);
+    (io.success ?? io.out)(`${ext.title} installed. Run: bun test && bun run check`);
     if (Object.keys(fresh.plan.deps).length > 0) io.out("Dependencies were added; run: bun install");
     return 0;
   }
@@ -800,10 +801,31 @@ export async function runCli(
     );
     return 1;
   }
-  io.out(`${ext.title} removed. Tables (if any) were kept; see the note above.`);
+  (io.success ?? io.out)(`${ext.title} removed. Tables (if any) were kept; see the note above.`);
   return 0;
 }
 
 if (import.meta.main) {
-  process.exit(await runCli(process.argv.slice(2), process.cwd()));
+  const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const color = interactive && !("NO_COLOR" in process.env) && process.env.TERM !== "dumb";
+  if (!color) {
+    process.exit(await runCli(process.argv.slice(2), process.cwd()));
+  }
+  // Branded frame, matching create and ship.
+  const { intro, outro, log, confirm, isCancel } = await import("@clack/prompts");
+  const accent = (value: string) => `\x1b[38;5;208m${value}\x1b[0m`;
+  intro("渋み shibumi");
+  const io: CliIo = {
+    out: (line) => log.message(line),
+    err: (line) => log.error(line),
+    confirm: async (message) => {
+      const answer = await confirm({ message });
+      return !isCancel(answer) && answer === true;
+    },
+    title: (line) => log.step(line),
+    success: (line) => log.success(line),
+  };
+  const code = await runCli(process.argv.slice(2), process.cwd(), io, true);
+  outro(code === 0 ? `Docs: ${accent("https://shibumistack.dev/extensions")}` : "Stopped; see the messages above.");
+  process.exit(code);
 }
