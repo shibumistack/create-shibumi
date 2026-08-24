@@ -21,7 +21,7 @@ Manual, owner-run. The package is `"private": true` and stays that way until the
 6. Cold-verify from the registry on a clean machine (no checkout, fresh temp dir):
    - `bun create shibumi@next cold-fs --yes --template full-stack` then `cd cold-fs && bun install && bun test && bun run check && bun run build`
    - `bunx create-shibumi@next cold-web --yes --template web` and the same acceptance
-   - `bun run shibumi add auth --yes` (full-stack) and `add email` (web); run tests
+   - full-stack: `bun run shibumi add auth --yes`, then `add uploads --yes`, then `add admin --yes`; run `bun test && bun run check && bun run build`. web: `add email --yes`; run tests. Confirm `add uploads`/`add admin` refuse without auth, and removal refuses while a dependent is installed.
    - scaffold static and blog; build blog, check artifacts
    - confirm the published tarball digest matches the one `verify:packed` recorded
 7. Promote the verified version to `latest`: `npm dist-tag add create-shibumi@<version> latest`.
