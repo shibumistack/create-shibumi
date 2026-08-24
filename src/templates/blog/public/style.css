@@ -164,6 +164,13 @@ article img {
   width: 100%;
   height: auto;
   border-radius: 0.6rem;
+  opacity: 0.9;
+  transition: opacity 200ms ease;
+}
+
+article img:hover,
+article img:focus-visible {
+  opacity: 1;
 }
 
 article small {
@@ -203,4 +210,12 @@ article small {
 .ghost-pill:focus-visible {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+article code {
+  padding: 0.12em 0.42em;
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
 }
