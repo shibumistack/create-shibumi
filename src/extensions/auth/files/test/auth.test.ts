@@ -27,6 +27,11 @@ await applyMigrations(sqlite);
 // Deliberate fail-closed paths (unset APP_ORIGIN, unwired link delivery) log
 // through console.error while the HTTP response stays neutral. Filter exactly
 // that expected noise so a green suite reads green; anything else still prints.
+const realConsoleLog = console.log;
+console.log = (...args: unknown[]) => {
+  if (String(args[0] ?? "").startsWith("Login link for ")) return;
+  realConsoleLog(...args);
+};
 const realConsoleError = console.error;
 console.error = (...args: unknown[]) => {
   const text = args.map(String).join(" ");
