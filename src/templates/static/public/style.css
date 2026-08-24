@@ -78,3 +78,19 @@ a {
 a:hover {
   text-decoration-color: var(--accent);
 }
+
+.steps {
+  margin: 0 0 2.5rem;
+  padding-left: 1.4rem;
+}
+
+.steps li {
+  margin-bottom: 0.6rem;
+}
+
+.aside {
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 1rem;
+}

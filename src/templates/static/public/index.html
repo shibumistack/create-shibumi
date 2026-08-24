@@ -12,9 +12,13 @@
     <main>
       <p class="masthead"><span class="masthead-mark">渋み</span> shibumi static</p>
       <h1>It ships.</h1>
-      <p class="lede">Plain files, verified and packaged into a pinned static image. Any generator can feed it.</p>
-      <p>This page is <code>public/index.html</code>. Edit it, commit, run <code>bun ship</code>.</p>
-      <p>Using Astro, Jekyll, Eleventy, or another generator? Point its output here, or run <code>bun ship:setup</code> in that project instead; the Ship client packages any verified build directory.</p>
+      <p class="lede">Every file in <code>public/</code> is a page on your site. You are looking at <code>public/index.html</code>.</p>
+      <ol class="steps">
+        <li>Edit this file. <code>bun dev</code> shows it locally.</li>
+        <li>Connect your server once with <code>bun ship:setup</code>.</li>
+        <li>After that, every deploy is <code>git commit</code> and <code>bun ship</code>.</li>
+      </ol>
+      <p class="aside">Writing with Astro, Jekyll, or Eleventy instead? Run <code>bun ship:setup</code> inside that project; Ship deploys any build folder it can verify.</p>
     </main>
   </body>
 </html>
