@@ -1,0 +1,6 @@
+# Email extension config. Bundled into the image at build time; edit and
+# re-deploy to apply. Validated at startup by src/lib/email.ts.
+
+# How far a Resend webhook timestamp may be from now, in seconds, before the
+# signature is rejected (replay window). Lower is stricter.
+webhook_tolerance_seconds: 300

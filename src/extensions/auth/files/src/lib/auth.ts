@@ -17,9 +17,33 @@ import { getCookie } from "hono/cookie";
 import { eq, lt } from "drizzle-orm";
 import { db } from "../db";
 import { loginTokens, sessions, users } from "../db/schema-auth";
+// Editable knobs live in config/auth.yaml; Bun bundles the parsed values into
+// the image at build time. Edit that file and re-deploy to change them.
+import rawAuthConfig from "../config/auth.yaml";
 
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const LOGIN_TOKEN_TTL_MS = 15 * 60 * 1000;
+// A bad edit throws here at module load, so the container fails its health
+// check and the previous deployment stays live instead of running with a
+// weakened limit.
+function positiveInt(config: Record<string, unknown>, key: string): number {
+  const value = config[key];
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`auth config: ${key} must be a positive integer (config/auth.yaml)`);
+  }
+  return value;
+}
+
+const authConfig = (rawAuthConfig ?? {}) as Record<string, unknown>;
+
+const SESSION_TTL_MS = positiveInt(authConfig, "session_days") * 24 * 60 * 60 * 1000;
+const LOGIN_TOKEN_TTL_MS = positiveInt(authConfig, "login_link_minutes") * 60 * 1000;
+
+// Rate limits (per IP, per 15-minute window) and the password floor are read
+// by the routes; secondary per-email buckets and internal caps stay fixed.
+export const RATE_WINDOW_MS = 15 * 60 * 1000;
+export const PASSWORD_MIN_LENGTH = positiveInt(authConfig, "password_min_length");
+export const REGISTER_RATE = positiveInt(authConfig, "register_rate_per_15min");
+export const LOGIN_RATE = positiveInt(authConfig, "login_rate_per_15min");
+export const LOGIN_LINK_RATE = positiveInt(authConfig, "login_link_rate_per_15min");
 
 export const SESSION_COOKIE = "session";
 export const SESSION_MAX_AGE_S = SESSION_TTL_MS / 1000;

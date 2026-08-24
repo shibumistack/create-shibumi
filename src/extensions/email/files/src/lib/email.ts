@@ -4,8 +4,22 @@
 // are required at send time, RESEND_WEBHOOK_SECRET only for webhooks.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { loadEnv } from "../env";
+// Editable knobs live in config/email.yaml; Bun bundles the parsed values into
+// the image at build time. Validated here at module load.
+import rawEmailConfig from "../config/email.yaml";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
+
+function positiveInt(config: Record<string, unknown>, key: string): number {
+  const value = config[key];
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`email config: ${key} must be a positive integer (config/email.yaml)`);
+  }
+  return value;
+}
+
+const emailConfig = (rawEmailConfig ?? {}) as Record<string, unknown>;
+export const WEBHOOK_TOLERANCE_SECONDS = positiveInt(emailConfig, "webhook_tolerance_seconds");
 
 export interface SendEmailInput {
   to: string;
@@ -105,7 +119,7 @@ export function verifyResendWebhook(
   const signatures = headers["svix-signature"];
   if (!id || !timestamp || !signatures) return false;
   const seconds = Number(timestamp);
-  if (!Number.isFinite(seconds) || Math.abs(nowMs / 1000 - seconds) > 300) return false;
+  if (!Number.isFinite(seconds) || Math.abs(nowMs / 1000 - seconds) > WEBHOOK_TOLERANCE_SECONDS) return false;
   const key = Buffer.from(secret.replace(/^whsec_/, ""), "base64");
   if (key.length === 0) return false;
   const expected = createHmac("sha256", key).update(`${id}.${timestamp}.${rawBody}`).digest();

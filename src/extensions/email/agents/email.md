@@ -7,6 +7,10 @@ Installed by `bun run shibumi add email`. This project owns every file below.
 - `src/lib/email.ts`: `sendEmail`, `renderTemplate`, `escapeHtml`, `verifyResendWebhook`. Plain fetch to Resend's HTTP API; no SDK dependency.
 - `test/email.test.ts`: send payload, template rendering and escaping, webhook signature coverage. Uses an injected fetcher; no network.
 
+## Config
+
+`src/config/email.yaml` (bundled at build) holds `webhook_tolerance_seconds` (default 300): how far a webhook timestamp may be from now before the signature is rejected. Validated at startup.
+
 ## Environment
 
 Validated in `src/env.ts`, all optional at boot and checked at use:

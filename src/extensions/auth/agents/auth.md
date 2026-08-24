@@ -10,6 +10,10 @@ Installed by `bun run shibumi add auth`. This project owns every file below; edi
 - `src/db/migrations/<n>_auth.sql`: the tables, numbered into this project's migration stream at install time.
 - `test/auth.test.ts`: register/login/session/login-link/CSRF/rate-limit coverage.
 
+## Config
+
+Editable knobs live in `src/config/auth.yaml` (bundled into the image at build; edit and re-deploy to apply): `session_days` (7), `login_link_minutes` (15), `password_min_length` (8), and the per-IP `register_rate_per_15min` / `login_rate_per_15min` / `login_link_rate_per_15min`. `src/lib/auth.ts` validates them at startup and refuses to boot on a bad value. Secondary per-email rate buckets, the body cap, and the tracked-window cap stay fixed in code.
+
 ## Endpoints
 
 - `POST /auth/register` `{ email, password }` → 201, sets session cookie. Password 8 to 128 chars, hashed with `Bun.password` (argon2id).

@@ -1,0 +1,17 @@
+# Auth extension config. Bundled into the image at build time; edit and
+# re-deploy (bun ship) to apply. Validated at startup by src/lib/auth.ts, which
+# refuses to boot on a bad value.
+
+# How long a session cookie stays valid, in days.
+session_days: 7
+
+# How long a login link stays valid, in minutes.
+login_link_minutes: 15
+
+# Minimum password length (the maximum is fixed at 128).
+password_min_length: 8
+
+# Per-IP rate limits, each counted per 15 minutes.
+register_rate_per_15min: 10
+login_rate_per_15min: 10
+login_link_rate_per_15min: 5
