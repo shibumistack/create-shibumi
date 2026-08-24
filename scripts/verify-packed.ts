@@ -301,7 +301,9 @@ function main(): void {
       if (!existsSync(join(dir, "dist", "server.js"))) {
         fail(`accept:${id}`, "build did not produce dist/server.js");
       }
-      extensionCycle(id, dir, id === "full-stack" ? ["auth", "email"] : ["email"]);
+      // Order matters: uploads dependsOn auth, so auth is added first and
+      // removed last (the cycle removes in reverse).
+      extensionCycle(id, dir, id === "full-stack" ? ["auth", "email", "uploads"] : ["email"]);
     }
 
     if (id === "static") {

@@ -32,6 +32,7 @@ interface Manifest {
   title: string;
   description: string;
   requires: "database" | null;
+  dependsOn?: string[];
   env: string[];
   deps?: Record<string, string>;
   hooks?: ManifestHook[];
@@ -108,6 +109,7 @@ export function buildBundles(extensionsDir = EXTENSIONS_DIR): unknown[] {
       title: manifest.title,
       description: manifest.description,
       requires: manifest.requires,
+      ...(manifest.dependsOn && manifest.dependsOn.length > 0 ? { dependsOn: manifest.dependsOn } : {}),
       env: manifest.env ?? [],
       ...(manifest.deps && Object.keys(manifest.deps).length > 0 ? { deps: manifest.deps } : {}),
       files,

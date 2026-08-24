@@ -1,0 +1,42 @@
+{
+  "name": "uploads",
+  "title": "Uploads",
+  "description": "Authenticated file uploads: validated multipart, content-addressed storage on the persistent volume, owner-scoped serving",
+  "requires": "database",
+  "dependsOn": ["auth"],
+  "env": [],
+  "hooks": [
+    {
+      "file": "src/app.ts",
+      "find": "import { Hono } from \"hono\";",
+      "insert": "import { uploadRoutes } from \"./routes/uploads\";"
+    },
+    {
+      "file": "src/app.ts",
+      "find": "  app.get(\"/healthz\", (c) => c.json({ ok: true }));",
+      "insert": "\n  app.route(\"/uploads\", uploadRoutes);"
+    },
+    {
+      "file": "src/db/index.ts",
+      "find": "import * as authSchema from \"./schema-auth\";",
+      "insert": "import * as uploadsSchema from \"./schema-uploads\";"
+    },
+    {
+      "file": "src/db/index.ts",
+      "find": "export const db = drizzle(sqlite, { schema: { ...schema, ...authSchema } });",
+      "replace": "export const db = drizzle(sqlite, { schema: { ...schema, ...authSchema, ...uploadsSchema } });"
+    },
+    {
+      "file": "src/server.ts",
+      "find": "  maxRequestBodySize: 1024 * 1024,",
+      "replace": "  // Raised by the uploads extension (5 files x 10 MiB) plus multipart overhead.\n  maxRequestBodySize: 55 * 1024 * 1024,"
+    },
+    {
+      "file": "test/app.test.ts",
+      "find": "        \"GET /healthz\",",
+      "insert": "        // Uploads extension (bun run shibumi add uploads): every route is\n        // session-guarded and CSRF-protected; covered by test/uploads.test.ts.\n        // Two ALL entries: the CSRF and requireAuth middlewares.\n        \"ALL /uploads/*\",\n        \"ALL /uploads/*\",\n        \"POST /uploads\",\n        \"GET /uploads\",\n        \"GET /uploads/:id\",\n        \"DELETE /uploads/:id\","
+    }
+  ],
+  "rootSection": "## Uploads extension\n\nInstalled by `bun run shibumi add uploads` (needs the auth extension); full guide in `agents/uploads.md`.\n\n- Routes under `/uploads` (POST upload, GET list, GET :id download, DELETE :id) live in `src/routes/uploads.ts`; validation, storage, and serving in `src/lib/uploads.ts`. Every route requires a session; CSRF covers mutations.\n- File type is decided by sniffing magic bytes (png/jpeg/gif/webp/pdf), never the client filename or Content-Type. Limits: 10 MiB per file, 5 files per request.\n- Bytes are stored content-addressed (sha256 + sniffed extension) under `<db-dir>/uploads` (the `/data` volume in the container); metadata is the `uploads` table in app.db. On-disk names can never contain a path separator.\n- Serving is owner-scoped and forces `Content-Disposition: attachment`; uploads are never rendered inline.\n- The server's `maxRequestBodySize` is raised to 55 MiB by this extension; removal restores 1 MiB.\n- Removal deletes code and reverses edits; the `uploads` table and stored files stay. Drop/clear them manually.",
+  "removeNote": "The uploads table stays in app.db and stored files stay under <db-dir>/uploads wherever they were written. Drop the table (DROP TABLE uploads;) and clear the directory manually if unwanted."
+}

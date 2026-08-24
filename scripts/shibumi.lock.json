@@ -2,7 +2,8 @@
   "version": "0.1.0",
   "extensions": [
     "auth",
-    "email"
+    "email",
+    "uploads"
   ],
-  "sha256": "03d8a9f0f9076da096cd7668f22d080a3dbb620a57df750b5654fb987da3c1ee"
+  "sha256": "41c02b38647c16865234e34417b072c8c4aa360a476f4a8fe15e7d6197c279fb"
 }
