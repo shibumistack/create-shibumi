@@ -1,6 +1,6 @@
 ---
 title: Writing for readers who curl
-description: Half your readers are now programs. Serving markdown alternates and an llms.txt costs one endpoint and respects both audiences.
+description: Half your readers are now agents. Serving markdown alternates and an llms.txt costs one endpoint and respects both audiences.
 date: 2026-06-20
 ---
 
