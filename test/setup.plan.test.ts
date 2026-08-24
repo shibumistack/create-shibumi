@@ -38,9 +38,15 @@ beforeEach(() => {
     `${JSON.stringify({ name: DOMAIN, private: true, scripts: { build: "true" } }, null, 2)}\n`
   );
   writeFileSync(join(project, "public", "index.html"), "<!doctype html>\n");
-  // Not gitignored on purpose: setup must not sweep it into the commit it
-  // then pushes to a brand-new repository.
+  // None of these are gitignored, on purpose. The two real dotenv files must
+  // stay out of the commit setup then pushes; the example and the two source
+  // files whose names merely contain ".env" must go in.
+  mkdirSync(join(project, "src"), { recursive: true });
   writeFileSync(join(project, ".env"), "API_TOKEN=super-secret\n");
+  writeFileSync(join(project, ".env.local"), "API_TOKEN=also-secret\n");
+  writeFileSync(join(project, ".env.example"), "API_TOKEN=\n");
+  writeFileSync(join(project, "src", "schema.env.ts"), "export type Env = { API_TOKEN: string };\n");
+  writeFileSync(join(project, "src", "config.env.json"), `{ "region": "eu" }\n`);
   git("init", "-q", "-b", "main", ".");
   tools = fakeTools(work, { domain: DOMAIN, appId: APP_ID, repository: REPOSITORY });
 });
@@ -123,12 +129,20 @@ describe("setup plan", () => {
     // The trigger question is gone: the plan states the trigger instead.
     expect(r.output).not.toContain("How do you want to deploy?");
 
-    // The secret stayed local; everything else went in.
+    // Exactly the two real dotenv files stayed local. A wider pathspec drops
+    // .env.example and any src file whose name contains ".env", which on a
+    // first commit means pushing an incomplete tree.
     const tracked = git("ls-files").stdout.toString().split("\n").filter(Boolean);
     expect(tracked).not.toContain(".env");
+    expect(tracked).not.toContain(".env.local");
+    expect(tracked).toContain(".env.example");
+    expect(tracked).toContain("src/schema.env.ts");
+    expect(tracked).toContain("src/config.env.json");
     expect(tracked).toContain("compose.yaml");
     expect(tracked).toContain("shibumi-server.json");
-    expect(r.output).toContain("Left .env out of the commit");
+    // And the warning names only the two it actually held back.
+    expect(r.output).toContain("Left .env, .env.local out of the commit");
+    expect(r.output).not.toContain(".env.example out of the commit");
     expect(readFileSync(join(project, ".env"), "utf8")).toContain("super-secret");
 
     // The push really happened: the bare origin has the branch.
@@ -182,6 +196,26 @@ describe("setup plan", () => {
     expect(calls()).not.toContain("repo create");
     expect(readFileSync(join(project, "shibumi-server.json"), "utf8")).toContain(APP_ID);
     expect(output).toContain("Pushed main to origin");
+  });
+
+  it("restores the per-step gates with --interactive, and asks each one once", () => {
+    // A project with history and an origin: the steps left to gate are the
+    // generated-files commit, the SSH registration, and the setup commit.
+    git("add", "-A");
+    git("commit", "-q", "-m", "Initial commit");
+    git("remote", "add", "origin", `https://github.com/${REPOSITORY}.git`);
+    git("remote", "set-url", "--push", "origin", `file://${tools.origin}`);
+    const r = runSetup([...STATIC_ARGS, "--interactive"], ["\r", "\r", "\r", "n"]);
+    expect(r.output).toContain("Plan");
+    expect(r.output).not.toContain("Run setup?");
+    expect(r.output).toContain("Commit the generated files, then continue setup?");
+    expect(r.output).toContain("Continue through SSH?");
+    expect(r.output).toContain("Commit deployment setup now?");
+    // Once, not twice: setup and runShip used to both ask, and declining the
+    // first then committed without pushing on the second.
+    expect(r.output.split("◇  Commit deployment setup now?")).toHaveLength(2);
+    expect(readFileSync(join(project, "shibumi-server.json"), "utf8")).toContain(APP_ID);
+    expect(git("status", "--porcelain").stdout.toString().trim()).toBe("");
   });
 
   it("still asks for a GitHub sign-in the plan never promised", () => {

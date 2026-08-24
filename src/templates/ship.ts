@@ -367,7 +367,9 @@ async function git(...args: string[]): Promise<string> {
 
 const setupFiles = ["package.json", "bun.lock", "scripts/ship.ts", "shibumi-server.json"];
 
-async function offerSetupCommit(config: ClientConfig): Promise<"none" | "committed" | "declined"> {
+type SetupCommit = "none" | "committed" | "declined";
+
+async function offerSetupCommit(config: ClientConfig): Promise<SetupCommit> {
   const changed: string[] = [];
   for (const file of setupFiles) {
     const status = await run(["git", "status", "--porcelain", "--", file]);
@@ -1074,13 +1076,29 @@ async function resolveDomain(current?: ClientConfig): Promise<string> {
 // A local .env holds exactly what must never reach a repository, and the next
 // step of this plan pushes. Templates gitignore it, but an adopted project may
 // not, so the pathspec keeps it out of the index no matter what git thinks.
-// Unanchored on purpose: a pathspec without a leading glob only excludes the
-// repository root, and secrets live in subdirectories too.
-const ENV_EXCLUDES = [":(exclude)*.env", ":(exclude)*.env.*"];
+// glob magic on purpose: without it git matches the pathspec with slashes
+// fair game, so ":(exclude)*.env.*" also drops src/schema.env.ts and
+// src/config.env.json out of the commit. With it, "**/" walks directories and
+// "*" stops at the separator, so only real dotenv basenames match.
+const ENV_EXCLUDES = [":(exclude,glob)**/.env", ":(exclude,glob)**/.env.*"];
+const ENV_GLOBS = [":(glob)**/.env", ":(glob)**/.env.*"];
+const ENV_EXAMPLE_GLOB = ":(glob)**/.env.example";
+
+function isEnvExample(path: string): boolean {
+  return path === ".env.example" || path.endsWith("/.env.example");
+}
 
 async function untrackedEnvFiles(): Promise<string[]> {
-  const listed = await run(["git", "ls-files", "--others", "--exclude-standard", "--", "*.env", "*.env.*"], { allowFailure: true });
-  return listed.stdout.split("\n").filter(Boolean);
+  const listed = await run(["git", "ls-files", "--others", "--exclude-standard", "--", ...ENV_GLOBS], { allowFailure: true });
+  return listed.stdout.split("\n").filter(Boolean).filter((path) => !isEnvExample(path));
+}
+
+// .env.example documents the variable names and holds none of the values, so
+// it rides along after the blanket exclude took it out.
+async function addEnvExamples(): Promise<void> {
+  const listed = await run(["git", "ls-files", "--others", "--modified", "--exclude-standard", "--", ENV_EXAMPLE_GLOB], { allowFailure: true });
+  const examples = [...new Set(listed.stdout.split("\n").filter(Boolean))];
+  if (examples.length > 0) await run(["git", "add", "--", ...examples], { allowFailure: true });
 }
 
 // The first commit belongs to the user, so create-shibumi never makes one;
@@ -1088,6 +1106,7 @@ async function untrackedEnvFiles(): Promise<string[]> {
 async function commitEverything(message: string): Promise<boolean> {
   const secrets = await untrackedEnvFiles();
   await run(["git", "add", "-A", "--", ".", ...ENV_EXCLUDES]);
+  await addEnvExamples();
   if ((await run(["git", "diff", "--cached", "--quiet"], { allowFailure: true })).exitCode === 0) return false;
   const commit = await run(["git", "commit", "-m", message], { inherit: true, allowFailure: true });
   if (commit.exitCode !== 0) throw new Error("git commit failed.\n\nNext: fix the git error above (identity, hooks), then run bun ship:setup.");
@@ -1427,11 +1446,13 @@ async function findWebhook(config: ClientConfig): Promise<GitHubWebhook | undefi
 
 // Fetch the secret only when GitHub needs it. It moves through process memory
 // from server output to `gh` input and is never printed or written locally.
-async function ensureWebhook(config: ClientConfig, target: string, assumeApproved = false): Promise<void> {
+// Returns true when this run created the hook, which is the only case where
+// a later failure may take it back down.
+async function ensureWebhook(config: ClientConfig, target: string, assumeApproved = false): Promise<boolean> {
   const existing = await findWebhook(config);
   if (existing && !existing.needsRepair) {
     log.success("GitHub webhook is active");
-    return;
+    return false;
   }
   const repository = config.repository.slice("github:".length);
   explain(
@@ -1471,7 +1492,7 @@ async function ensureWebhook(config: ClientConfig, target: string, assumeApprove
     const checked = await run(["gh", "api", `repos/${repository}/hooks/${hookId}`], { allowFailure: true });
     if (checked.exitCode === 0 && (JSON.parse(checked.stdout) as { last_response?: { code?: unknown } }).last_response?.code === 200) {
       log.success(existing ? "GitHub webhook repaired and tested" : "GitHub webhook created and tested");
-      return;
+      return !existing;
     }
   }
   throw new Error(`GitHub webhook is configured but not reachable yet.\n\nNext: confirm ${config.domain} DNS and TLS, then run bun ship:webhook. For proxied Cloudflare domains, use Full (strict) SSL/TLS mode. Prefer deploying with bun ship? Run bun ship:webhook --off.\n\nGitHub: https://github.com/${repository}/settings/hooks`);
@@ -1555,12 +1576,14 @@ async function runWebhook(): Promise<void> {
     }
     // Hook first, then the trigger: if the trigger switch fails, the hook is
     // taken back down, so an active hook always means trigger github-push.
-    await ensureWebhook(config, target, true);
+    const created = await ensureWebhook(config, target, true);
     let updated: ClientConfig;
     try {
       updated = await setDeploymentMode({ ...config, trigger: "github-push" }, target, "github-push");
     } catch (error) {
-      await disableWebhook(config, true);
+      // Only undo what this run did: a hook that was already there (repair
+      // path) stays, and its project keeps deploying on push.
+      if (created) await disableWebhook(config, true);
       throw error;
     }
     await writeFile(configPath, `${JSON.stringify(updated, null, 2)}\n`);
@@ -1571,7 +1594,14 @@ async function runWebhook(): Promise<void> {
   }
 }
 
-async function setup(force: boolean): Promise<{ config: ClientConfig; target: string; changed: boolean } | undefined> {
+interface SetupResult {
+  config: ClientConfig;
+  target: string;
+  changed: boolean;
+  setupCommit?: SetupCommit;
+}
+
+async function setup(force: boolean): Promise<SetupResult | undefined> {
   let config = await readConfig();
   const first = force || !config;
   const previous = config;
@@ -1637,15 +1667,25 @@ async function setup(force: boolean): Promise<{ config: ClientConfig; target: st
   if (!config) throw new Error("deployment setup did not return client configuration");
   await rememberSshTarget(config.server.hostname, target);
   config = await setDeploymentMode({ ...config, trigger }, target, trigger);
-  if (first) {
+  // Persisting is ship:setup's job. A bare `bun ship` that had to run setup
+  // leaves the commit to runShip below, exactly as it did before v48.
+  let setupCommit: SetupCommit | undefined;
+  if (force) {
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
     log.success(trigger === "ship"
       ? "Deployments run through bun ship"
       : `Deployments run on every push to ${config.branch}`);
-    // The plan said commit and push, so this run does both.
-    if (await offerSetupCommit(config) !== "declined") await pushSetupCommit(config.branch);
+    // The plan said commit and push, so this run does both, and runShip is
+    // told the outcome so it never asks the same question twice.
+    setupCommit = await offerSetupCommit(config);
+    if (setupCommit !== "declined") await pushSetupCommit(config.branch);
   }
-  return { config, target, changed: !previous || JSON.stringify(previous) !== JSON.stringify(config) };
+  return {
+    config,
+    target,
+    setupCommit,
+    changed: !previous || JSON.stringify(previous) !== JSON.stringify(config),
+  };
 }
 
 async function pushSetupCommit(branch: string): Promise<void> {
@@ -2141,7 +2181,9 @@ export async function runShip(): Promise<void> {
     const forceSetup = options.setup;
     const result = await setup(forceSetup);
     if (!result) return;
-    const setupCommit = await offerSetupCommit(result.config);
+    // ship:setup already committed and pushed; asking again would prompt
+    // twice and, on a decline, commit without pushing.
+    const setupCommit = result.setupCommit ?? await offerSetupCommit(result.config);
     if (setupCommit === "declined") {
       outro(`${accent("Next:")} review and commit Shibumi setup files, then run bun ship.`);
       return;
@@ -2156,6 +2198,9 @@ export async function runShip(): Promise<void> {
         ? await confirm({ message: "Ship now?", initialValue: true })
         : false;
       if (shipNow !== true || isCancel(shipNow)) {
+        // A commit made just above still has to reach origin; leaving here
+        // must not leave "commit and push" half done.
+        if (setupCommit === "committed") await pushSetupCommit(result.config.branch);
         outro(result.config.trigger === "github-push"
           ? `${accent("Next:")} git push origin ${result.config.branch} to deploy`
           : `${accent("Next:")} bun ship\n      Prefer push-to-deploy? bun ship:webhook`);
