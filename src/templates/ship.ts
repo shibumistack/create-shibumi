@@ -305,20 +305,26 @@ async function rememberSshTarget(hostname: string, sshTarget: string): Promise<v
   log.success(`Saved server ${sshTarget} in ${path}`);
 }
 
-// Setup asks two questions, shows the plan, and runs it on one confirm. Once
-// that confirm lands, every step it described is already approved; the
-// per-step gates below only survive for `--setup --interactive`.
-let planApproved = false;
-
 function planSetup(): boolean {
   return !options.interactive && !options.yes && !agentRun
     && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
 }
 
 async function approve(message: string): Promise<boolean> {
-  if (options.yes || agentRun || planApproved) return true;
+  if (options.yes || agentRun) return true;
   const accepted = await confirm({ message, initialValue: true });
   return !isCancel(accepted) && accepted;
+}
+
+// Setup asks two questions, shows the plan, and runs it on one confirm. That
+// confirm answers exactly the steps the plan enumerated and nothing else:
+// anything the plan never named keeps asking for itself, including the GitHub
+// sign-in (it opens a browser) and the Caddy cutover (it moves public
+// traffic). `--setup --interactive` restores the per-step gates.
+let planApproved = false;
+
+async function approvePlanned(message: string): Promise<boolean> {
+  return planApproved ? true : approve(message);
 }
 
 function explain(title: string, message: string): void {
@@ -374,7 +380,7 @@ async function offerSetupCommit(config: ClientConfig): Promise<"none" | "committ
     return "declined";
   }
   const trackedConfig = (await run(["git", "ls-files", "--error-unmatch", "shibumi-server.json"], { allowFailure: true })).exitCode === 0;
-  if (!await approve(updateOnly ? "Commit ship client update now?" : "Commit deployment setup now?")) return "declined";
+  if (!await approvePlanned(updateOnly ? "Commit ship client update now?" : "Commit deployment setup now?")) return "declined";
   await run(["git", "add", "--", ...changed]);
   await run(["git", "commit", "--only", "-m", trackedConfig ? "Update Shibumi deployment" : "Add Shibumi deployment", "--", ...changed], { inherit: true });
   log.success(updateOnly ? "Committed ship client update" : "Committed Shibumi deployment setup");
@@ -793,23 +799,35 @@ async function otherWorktreeCompose(): Promise<WorktreeCompose[]> {
   return alternatives;
 }
 
-async function prepareCompose(): Promise<boolean> {
+// Deciding what to deploy is separated from writing it, so a plan run can
+// state "Generate deployment files (static, dist/)" and mean it: nothing is
+// on disk until the plan is approved, and cancelling really changed nothing.
+type DeploymentDecision =
+  | { kind: "tracked" }
+  | { kind: "untracked"; file: string }
+  | { kind: "static"; config: StaticSiteConfig }
+  | { kind: "server"; dockerfileExists: boolean; hasBuildScript: boolean };
+
+export function deploymentPlanLine(decision: { kind: string; config?: StaticSiteConfig }): string | undefined {
+  if (decision.kind === "static" && decision.config) {
+    const build = decision.config.buildScript ? `, bun run ${decision.config.buildScript}` : "";
+    return `Generate deployment files (static, ${decision.config.outputDir}/${build})`;
+  }
+  if (decision.kind === "server") return "Generate deployment files (Bun server app)";
+  return undefined;
+}
+
+async function decideDeployment(): Promise<DeploymentDecision> {
   const branch = await git("branch", "--show-current");
   if (!branch) throw new Error("ship requires a named Git branch");
   const tracked = (await git("ls-files")).split("\n").filter(Boolean);
-  if (composeCandidates(tracked).length > 0) return false;
+  if (composeCandidates(tracked).length > 0) return { kind: "tracked" };
   const alternatives = await otherWorktreeCompose();
   if (alternatives.length > 0) throw new Error(missingComposeMessage(branch, alternatives));
 
   const names = ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"];
-  const existingCompose = (await Promise.all(names.map(async (name) => await Bun.file(join(root, name)).exists() ? name : undefined))).find(Boolean);
-  if (existingCompose) {
-    // The setup plan commits it in this same run; other modes stop here so
-    // the user reviews what they are about to deploy.
-    if (planSetup()) return false;
-    outro(`Found uncommitted ${existingCompose}.\n\nNext: review it, commit and push it, then run bun ship:setup.`);
-    return true;
-  }
+  const existing = (await Promise.all(names.map(async (name) => await Bun.file(join(root, name)).exists() ? name : undefined))).find(Boolean);
+  if (existing) return { kind: "untracked", file: existing };
 
   if (agentRun && !options.yes) {
     throw new Error("Compose deployment files are missing.\n\nAgent: ask user for permission to generate deployment files, then run bun ship:setup -y (add --static --output-dir <dir> for static output).");
@@ -826,79 +844,19 @@ async function prepareCompose(): Promise<boolean> {
     if (isCancel(kind)) throw new Error(missingComposeMessage(branch, []));
     wantStatic = kind === "static";
   }
-
-  if (wantStatic) {
-    await generateStaticDeployment();
-    if (planSetup() || await offerGeneratedCommit(["Dockerfile", "compose.yaml", ".dockerignore", "scripts/static-server.ts", "package.json", "bun.lock"])) return false;
-    outro("Review generated deployment files.\n\nNext: commit and push these changes, then run bun ship:setup.");
-    return true;
-  }
-
-  const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as { scripts?: Record<string, unknown> };
-  const dockerfileExists = await Bun.file(join(root, "Dockerfile")).exists();
-  if (!dockerfileExists && typeof packageJson.scripts?.start !== "string") {
-    throw new Error("Dockerfile generation requires a package.json start script.\n\nNext: add a start script that binds to 0.0.0.0 and reads PORT, then run bun ship:setup.");
-  }
-  const templates = deploymentFileTemplates(typeof packageJson.scripts?.build === "string");
-  const written: string[] = [];
-  for (const [name, contents] of Object.entries(templates)) {
-    if (name === "Dockerfile" && dockerfileExists) continue;
-    if (await Bun.file(join(root, name)).exists()) continue;
-    await writeFile(join(root, name), contents, { mode: 0o644 });
-    written.push(name);
-  }
-  log.success(`Generated ${written.join(", ")}`);
-  log.info("Verify the app binds to 0.0.0.0 and reads PORT before shipping.");
-  if (planSetup() || await offerGeneratedCommit(written)) return false;
-  outro("Review generated deployment files and verify app binds to 0.0.0.0 and reads PORT.\n\nNext: commit and push these changes, then run bun ship:setup.");
-  return true;
+  return wantStatic ? { kind: "static", config: await staticDeploymentInputs() } : await serverDeploymentInputs();
 }
 
-const SHIP_SCRIPTS = {
-  ship: "bun scripts/ship.ts",
-  "ship:setup": "bun scripts/ship.ts --setup",
-  "ship:update": "bun scripts/ship.ts --update",
-  "ship:status": "bun scripts/ship.ts --status",
-  "ship:logs": "bun scripts/ship.ts --logs",
-  "ship:webhook": "bun scripts/ship.ts --webhook",
-};
-
-
-// After generating deployment files interactively, offer to commit and push
-// them in the same run so setup continues without a manual rerun. Returns
-// true when the files are committed and pushed.
-async function offerGeneratedCommit(files: string[]): Promise<boolean> {
-  if (agentRun || !process.stdin.isTTY || !process.stdout.isTTY) return false;
-  const accepted = await confirm({ message: "Commit and push the generated files, then continue setup?", initialValue: true });
-  if (isCancel(accepted) || !accepted) return false;
-  const present: string[] = [];
-  for (const file of files) if (await Bun.file(join(root, file)).exists()) present.push(file);
-  await run(["git", "add", "--", ...present]);
-  await run(["git", "commit", "--only", "-m", "Add deployment configuration", "--", ...present], { inherit: true });
-  await run(["git", "push"], { inherit: true });
-  log.success("Committed and pushed deployment files");
-  return true;
-}
-
-async function generateStaticDeployment(): Promise<void> {
-  // Script-less generators (Jekyll) have no package.json; create a minimal one
-  // so bun ship commands and an optional build script have a home.
-  const packagePath = join(root, "package.json");
-  let packageJson: { name?: unknown; scripts?: Record<string, unknown> };
-  if (await Bun.file(packagePath).exists()) {
-    packageJson = JSON.parse(await readFile(packagePath, "utf8")) as typeof packageJson;
-  } else {
-    const name = root.split("/").pop()?.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[._-]+|[._-]+$/g, "") || "static-site";
-    packageJson = { name, private: true, scripts: { ...SHIP_SCRIPTS } } as typeof packageJson;
-    await writeFile(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, { mode: 0o644 });
-    log.success("Created minimal package.json");
-  }
-
+// Everything that can refuse the deployment runs here, before the plan is
+// rendered: a bad output directory, a missing build script, uncommitted output
+// with no build, or files that would be overwritten.
+async function staticDeploymentInputs(): Promise<StaticSiteConfig> {
+  const scripts = ((await Bun.file(join(root, "package.json")).json().catch(() => ({}))) as { scripts?: Record<string, unknown> }).scripts;
   let buildScript = options.buildScript;
-  if (buildScript && typeof packageJson.scripts?.[buildScript] !== "string") {
+  if (buildScript && typeof scripts?.[buildScript] !== "string") {
     throw new Error(`package.json has no "${buildScript}" script.\n\nNext: add it (for example "build": "jekyll build"), then run bun ship:setup again.`);
   }
-  if (!buildScript && typeof packageJson.scripts?.build === "string") buildScript = "build";
+  if (!buildScript && typeof scripts?.build === "string") buildScript = "build";
 
   let outputDir = options.outputDir;
   if (!outputDir) {
@@ -937,25 +895,106 @@ async function generateStaticDeployment(): Promise<void> {
     }
   }
 
-  const staticConfig: StaticSiteConfig = { outputDir: outputDir!, buildScript, spa };
-  const templates = staticDeploymentFileTemplates(staticConfig);
-  const targets = [...Object.keys(templates), ...(spa ? ["scripts/static-server.ts"] : [])];
+  const config: StaticSiteConfig = { outputDir: outputDir!, buildScript, spa };
+  const targets = [...Object.keys(staticDeploymentFileTemplates(config)), ...(spa ? ["scripts/static-server.ts"] : [])];
   const conflicts: string[] = [];
   for (const name of targets) if (await Bun.file(join(root, name)).exists()) conflicts.push(name);
   if (conflicts.length > 0) {
     throw new Error(`Static setup would generate ${conflicts.join(", ")}, which already exist and may package or run something else.\n\nNext: remove or rename them, then run bun ship:setup again.`);
   }
+  return config;
+}
+
+async function serverDeploymentInputs(): Promise<DeploymentDecision> {
+  const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as { scripts?: Record<string, unknown> };
+  const dockerfileExists = await Bun.file(join(root, "Dockerfile")).exists();
+  if (!dockerfileExists && typeof packageJson.scripts?.start !== "string") {
+    throw new Error("Dockerfile generation requires a package.json start script.\n\nNext: add a start script that binds to 0.0.0.0 and reads PORT, then run bun ship:setup.");
+  }
+  return { kind: "server", dockerfileExists, hasBuildScript: typeof packageJson.scripts?.build === "string" };
+}
+
+async function writeDeployment(decision: DeploymentDecision): Promise<string[]> {
   const written: string[] = [];
-  for (const [name, contents] of Object.entries(templates)) {
-    await writeFile(join(root, name), contents, { mode: 0o644 });
-    written.push(name);
+  if (decision.kind === "static") {
+    // Script-less generators (Jekyll) have no package.json; create a minimal
+    // one so bun ship commands and an optional build script have a home.
+    const packagePath = join(root, "package.json");
+    if (!await Bun.file(packagePath).exists()) {
+      const name = root.split("/").pop()?.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[._-]+|[._-]+$/g, "") || "static-site";
+      await writeFile(packagePath, `${JSON.stringify({ name, private: true, scripts: { ...SHIP_SCRIPTS } }, null, 2)}\n`, { mode: 0o644 });
+      written.push("package.json");
+      log.success("Created minimal package.json");
+    }
+    for (const [name, contents] of Object.entries(staticDeploymentFileTemplates(decision.config))) {
+      await writeFile(join(root, name), contents, { mode: 0o644 });
+      written.push(name);
+    }
+    if (decision.config.spa) {
+      await mkdir(join(root, "scripts"), { recursive: true });
+      await writeFile(join(root, "scripts", "static-server.ts"), staticServerSource(decision.config.outputDir), { mode: 0o644 });
+      written.push("scripts/static-server.ts");
+    }
+  } else if (decision.kind === "server") {
+    for (const [name, contents] of Object.entries(deploymentFileTemplates(decision.hasBuildScript))) {
+      if (name === "Dockerfile" && decision.dockerfileExists) continue;
+      if (await Bun.file(join(root, name)).exists()) continue;
+      await writeFile(join(root, name), contents, { mode: 0o644 });
+      written.push(name);
+    }
   }
-  if (spa) {
-    await mkdir(join(root, "scripts"), { recursive: true });
-    await writeFile(join(root, "scripts", "static-server.ts"), staticServerSource(staticConfig.outputDir), { mode: 0o644 });
-    written.push("scripts/static-server.ts");
+  if (written.length > 0) log.success(`Generated ${written.join(", ")}`);
+  if (decision.kind === "server") log.info("Verify the app binds to 0.0.0.0 and reads PORT before shipping.");
+  return written;
+}
+
+// Plan runs defer every write to plan execution. The other modes keep the
+// v47 behavior: generate now, offer to commit, otherwise stop for review.
+async function prepareDeployment(): Promise<{ decision: DeploymentDecision; pending: boolean } | undefined> {
+  const decision = await decideDeployment();
+  if (decision.kind === "tracked") return { decision, pending: false };
+  if (planSetup()) return { decision, pending: decision.kind !== "untracked" };
+  if (decision.kind === "untracked") {
+    outro(`Found uncommitted ${decision.file}.\n\nNext: review it, commit and push it, then run bun ship:setup.`);
+    return undefined;
   }
-  log.success(`Generated ${written.join(", ")}`);
+  const written = await writeDeployment(decision);
+  if (await offerGeneratedCommit(written)) return { decision, pending: false };
+  outro(decision.kind === "server"
+    ? "Review generated deployment files and verify app binds to 0.0.0.0 and reads PORT.\n\nNext: commit and push these changes, then run bun ship:setup."
+    : "Review generated deployment files.\n\nNext: commit and push these changes, then run bun ship:setup.");
+  return undefined;
+}
+
+const SHIP_SCRIPTS = {
+  ship: "bun scripts/ship.ts",
+  "ship:setup": "bun scripts/ship.ts --setup",
+  "ship:update": "bun scripts/ship.ts --update",
+  "ship:status": "bun scripts/ship.ts --status",
+  "ship:logs": "bun scripts/ship.ts --logs",
+  "ship:webhook": "bun scripts/ship.ts --webhook",
+};
+
+
+// After generating deployment files interactively, offer to commit and push
+// them in the same run so setup continues without a manual rerun. Returns
+// true when the files are committed. A project with no origin yet cannot be
+// pushed to; setup creates the repository and pushes a few steps later.
+async function offerGeneratedCommit(files: string[]): Promise<boolean> {
+  if (agentRun || !process.stdin.isTTY || !process.stdout.isTTY) return false;
+  const accepted = await confirm({ message: "Commit the generated files, then continue setup?", initialValue: true });
+  if (isCancel(accepted) || !accepted) return false;
+  const present: string[] = [];
+  for (const file of files) if (await Bun.file(join(root, file)).exists()) present.push(file);
+  await run(["git", "add", "--", ...present]);
+  await run(["git", "commit", "--only", "-m", "Add deployment configuration", "--", ...present], { inherit: true });
+  if ((await run(["git", "remote", "get-url", "origin"], { allowFailure: true })).exitCode !== 0) {
+    log.success("Committed deployment files");
+    return true;
+  }
+  await run(["git", "push"], { inherit: true, allowFailure: true });
+  log.success("Committed and pushed deployment files");
+  return true;
 }
 
 // ── Repository facts ───────────────────────────────────────────────────
@@ -1032,14 +1071,30 @@ async function resolveDomain(current?: ClientConfig): Promise<string> {
   return answer;
 }
 
+// A local .env holds exactly what must never reach a repository, and the next
+// step of this plan pushes. Templates gitignore it, but an adopted project may
+// not, so the pathspec keeps it out of the index no matter what git thinks.
+// Unanchored on purpose: a pathspec without a leading glob only excludes the
+// repository root, and secrets live in subdirectories too.
+const ENV_EXCLUDES = [":(exclude)*.env", ":(exclude)*.env.*"];
+
+async function untrackedEnvFiles(): Promise<string[]> {
+  const listed = await run(["git", "ls-files", "--others", "--exclude-standard", "--", "*.env", "*.env.*"], { allowFailure: true });
+  return listed.stdout.split("\n").filter(Boolean);
+}
+
 // The first commit belongs to the user, so create-shibumi never makes one;
 // approving the plan is where the user makes it.
 async function commitEverything(message: string): Promise<boolean> {
-  await run(["git", "add", "-A"]);
+  const secrets = await untrackedEnvFiles();
+  await run(["git", "add", "-A", "--", ".", ...ENV_EXCLUDES]);
   if ((await run(["git", "diff", "--cached", "--quiet"], { allowFailure: true })).exitCode === 0) return false;
   const commit = await run(["git", "commit", "-m", message], { inherit: true, allowFailure: true });
   if (commit.exitCode !== 0) throw new Error("git commit failed.\n\nNext: fix the git error above (identity, hooks), then run bun ship:setup.");
   log.success(`Committed: ${message}`);
+  if (secrets.length > 0) {
+    log.warn(`Left ${secrets.join(", ")} out of the commit.\nNext: add ${secrets.length === 1 ? "it" : "them"} to .gitignore, and set production values with bun ship:env set KEY=VALUE.`);
+  }
   return true;
 }
 
@@ -1092,15 +1147,18 @@ export function setupPlanLines(input: {
   branch: string;
   newRepository?: string;
   visibility: "private" | "public";
+  generate?: string;
   commit: boolean;
+  trigger: "ship" | "github-push";
 }): string[] {
   return [
+    ...(input.generate ? [input.generate] : []),
     ...(input.newRepository ? [`Create ${input.visibility} repo ${input.newRepository}, push ${input.branch}`] : []),
     `Connect to ${input.target}, save target for this project`,
     "Install or upgrade shibumi-server (sudo password once)",
     `Register ${input.domain}`,
     ...(input.commit ? ["Commit and push deployment files"] : []),
-    "Deploys run on: bun ship",
+    `Deploys run on: ${input.trigger === "github-push" ? `git push origin ${input.branch}` : "bun ship"}`,
   ];
 }
 
@@ -1271,7 +1329,7 @@ async function ensureServer(target: string): Promise<void> {
     version.exitCode === 0 ? `shibumi-server ${version.stdout.trim()} needs an upgrade` : "shibumi-server is not installed",
     "This runs the reviewed installer on the SSH server. SSH and sudo prompts stay attached directly to your terminal.",
   );
-  if (!await approve("Install or upgrade shibumi-server now?")) throw new Error("server setup cancelled");
+  if (!await approvePlanned("Install or upgrade shibumi-server now?")) throw new Error("server setup cancelled");
   const result = await ssh(target, ["curl -fsSL https://shibumistack.dev/install/server | bash"], { tty: true, allowFailure: true });
   if (result.exitCode !== 0) throw new Error("remote shibumi-server installation failed");
   const installed = await ssh(target, [SERVER_CLI, "--version"], { allowFailure: true });
@@ -1298,7 +1356,7 @@ async function remoteSetup(target: string, domain: string): Promise<ClientConfig
       "Server setup required",
       `SSH target  ${target}\nDomain      ${domain}\nRepository  github:${project.repository}\n\nSSH and sudo prompts stay attached to this terminal.`,
     );
-    if (!await approve("Continue through SSH?")) throw new Error("server setup cancelled");
+    if (!await approvePlanned("Continue through SSH?")) throw new Error("server setup cancelled");
     const setup = await ssh(target, [
       "env", "SHIBUMI_SHIP_SETUP=1", SERVER_CLI, "add", domain,
       "--repository", `github:${project.repository}`,
@@ -1340,19 +1398,19 @@ async function ensureGitHubAuth(): Promise<void> {
   if (status.exitCode === 0) return;
   explain("GitHub sign-in required", "GitHub CLI stores your credentials. Shibumi never reads them.");
   if (agentRun || options.yes) throw new Error("GitHub sign-in required.\n\nAgent: ask user to run gh auth login -h github.com -p https -w, then retry.");
-  if (!await approve("Sign in to GitHub now?")) throw new Error("Next: run gh auth login -h github.com -p https -w, then rerun bun ship.");
+  if (!await approve("Sign in to GitHub now?")) throw new Error("Next: run gh auth login -h github.com -p https -w, then rerun this command.");
   const login = await run(["gh", "auth", "login", "-h", "github.com", "-p", "https", "-w"], { inherit: true, allowFailure: true });
   if (login.exitCode !== 0 || (await run(["gh", "auth", "status", "-h", "github.com"], { allowFailure: true })).exitCode !== 0) {
-    throw new Error("GitHub sign-in did not complete.\n\nNext: run gh auth login -h github.com -p https -w, then rerun bun ship.");
+    throw new Error("GitHub sign-in did not complete.\n\nNext: run gh auth login -h github.com -p https -w, then rerun this command.");
   }
 }
 
 async function authorizeWebhookAccess(): Promise<void> {
   explain("GitHub webhook access required", "GitHub CLI needs admin:repo_hook to create or repair this repository webhook.");
   if (agentRun || options.yes) throw new Error("GitHub webhook access required.\n\nAgent: ask user to run gh auth refresh -h github.com -s admin:repo_hook, then retry.");
-  if (!await approve("Authorize webhook access now?")) throw new Error("Next: run gh auth refresh -h github.com -s admin:repo_hook, then rerun bun ship.");
+  if (!await approve("Authorize webhook access now?")) throw new Error("Next: run gh auth refresh -h github.com -s admin:repo_hook, then rerun bun ship:webhook.");
   const refresh = await run(["gh", "auth", "refresh", "-h", "github.com", "-s", "admin:repo_hook"], { inherit: true, allowFailure: true });
-  if (refresh.exitCode !== 0) throw new Error("GitHub webhook authorization did not complete.\n\nNext: run gh auth refresh -h github.com -s admin:repo_hook, then rerun bun ship.");
+  if (refresh.exitCode !== 0) throw new Error("GitHub webhook authorization did not complete.\n\nNext: run gh auth refresh -h github.com -s admin:repo_hook, then rerun bun ship:webhook.");
 }
 
 async function findWebhook(config: ClientConfig): Promise<GitHubWebhook | undefined> {
@@ -1363,7 +1421,7 @@ async function findWebhook(config: ClientConfig): Promise<GitHubWebhook | undefi
     await authorizeWebhookAccess();
     hooks = await run(["gh", "api", `repos/${repository}/hooks?per_page=100`], { allowFailure: true });
   }
-  if (hooks.exitCode !== 0) throw new Error(`${hooks.stderr.trim() || "GitHub CLI could not read repository webhooks"}\n\nNext: confirm repository admin access, then rerun bun ship.`);
+  if (hooks.exitCode !== 0) throw new Error(`${hooks.stderr.trim() || "GitHub CLI could not read repository webhooks"}\n\nNext: confirm repository admin access, then rerun bun ship:webhook.`);
   return matchingWebhook(JSON.parse(hooks.stdout), config.webhookUrl);
 }
 
@@ -1397,14 +1455,14 @@ async function ensureWebhook(config: ClientConfig, target: string, assumeApprove
     await authorizeWebhookAccess();
     result = await run(args, { input, allowFailure: true });
   }
-  if (result.exitCode !== 0) throw new Error(`${result.stderr.trim() || "GitHub CLI could not configure webhook"}\n\nNext: confirm repository admin access, then rerun bun ship.`);
+  if (result.exitCode !== 0) throw new Error(`${result.stderr.trim() || "GitHub CLI could not configure webhook"}\n\nNext: confirm repository admin access, then rerun bun ship:webhook.`);
   const hookId = existing?.id ?? (JSON.parse(result.stdout) as { id?: unknown }).id;
   if (typeof hookId !== "number") throw new Error("GitHub returned an invalid webhook");
   if (existing && !existing.active) {
     result = await run(["gh", "api", "-X", "PATCH", `repos/${repository}/hooks/${hookId}`, "--input", "-"], {
       input: JSON.stringify({ active: true, events: ["push"] }), allowFailure: true,
     });
-    if (result.exitCode !== 0) throw new Error(`${result.stderr.trim() || "GitHub CLI could not enable webhook"}\n\nNext: confirm repository admin access, then rerun bun ship:setup.`);
+    if (result.exitCode !== 0) throw new Error(`${result.stderr.trim() || "GitHub CLI could not enable webhook"}\n\nNext: confirm repository admin access, then rerun bun ship:webhook.`);
   }
   const ping = await run(["gh", "api", "-X", "POST", `repos/${repository}/hooks/${hookId}/pings`], { allowFailure: true });
   if (ping.exitCode !== 0) throw new Error(`${ping.stderr.trim() || "GitHub CLI could not test webhook"}\n\nNext: review https://github.com/${repository}/settings/hooks.`);
@@ -1416,19 +1474,19 @@ async function ensureWebhook(config: ClientConfig, target: string, assumeApprove
       return;
     }
   }
-  throw new Error(`GitHub webhook is configured but not reachable yet.\n\nNext: confirm ${config.domain} DNS and TLS, then run bun ship:setup. For proxied Cloudflare domains, use Full (strict) SSL/TLS mode.\n\nGitHub: https://github.com/${repository}/settings/hooks`);
+  throw new Error(`GitHub webhook is configured but not reachable yet.\n\nNext: confirm ${config.domain} DNS and TLS, then run bun ship:webhook. For proxied Cloudflare domains, use Full (strict) SSL/TLS mode. Prefer deploying with bun ship? Run bun ship:webhook --off.\n\nGitHub: https://github.com/${repository}/settings/hooks`);
 }
 
 async function disableWebhook(config: ClientConfig, assumeApproved = false): Promise<void> {
   const repository = config.repository.slice("github:".length);
   const settings = `https://github.com/${repository}/settings/hooks`;
   if (!Bun.which("gh") || (await run(["gh", "auth", "status", "-h", "github.com"], { allowFailure: true })).exitCode !== 0) {
-    log.warn(`Direct shipping enabled. GitHub webhook cleanup skipped because GitHub CLI is not authenticated.\nNext: disable ${config.webhookUrl} at ${settings}, or rerun bun ship:setup after GitHub sign-in.`);
+    log.warn(`Direct shipping enabled. GitHub webhook cleanup skipped because GitHub CLI is not authenticated.\nNext: disable ${config.webhookUrl} at ${settings}, or rerun bun ship:webhook --off after GitHub sign-in.`);
     return;
   }
   const hooks = await run(["gh", "api", `repos/${repository}/hooks?per_page=100`], { allowFailure: true });
   if (hooks.exitCode !== 0) {
-    log.warn(`Direct shipping enabled. GitHub webhook cleanup could not reach GitHub.\nNext: disable ${config.webhookUrl} at ${settings}, or rerun bun ship:setup later.`);
+    log.warn(`Direct shipping enabled. GitHub webhook cleanup could not reach GitHub.\nNext: disable ${config.webhookUrl} at ${settings}, or rerun bun ship:webhook --off later.`);
     return;
   }
   const existing = matchingWebhook(JSON.parse(hooks.stdout), config.webhookUrl);
@@ -1444,7 +1502,7 @@ async function disableWebhook(config: ClientConfig, assumeApproved = false): Pro
     input: JSON.stringify({ active: false }), allowFailure: true,
   });
   if (result.exitCode !== 0) {
-    log.warn(`Direct shipping enabled. GitHub webhook cleanup failed.\nNext: disable ${config.webhookUrl} at ${settings}, or rerun bun ship:setup later.`);
+    log.warn(`Direct shipping enabled. GitHub webhook cleanup failed.\nNext: disable ${config.webhookUrl} at ${settings}, or rerun bun ship:webhook --off later.`);
     return;
   }
   log.success("GitHub webhook disabled");
@@ -1474,28 +1532,37 @@ async function runWebhook(): Promise<void> {
     if (!config) throw new Error("Shibumi setup is missing.\n\nNext: run bun ship:setup.");
     const target = await projectTarget(config);
     if (options.off) {
-      if (config.trigger !== "github-push") {
-        outro("Push-to-deploy is already off. Deploys run on: bun ship");
-        return;
-      }
-      const updated = await setDeploymentMode({ ...config, trigger: "ship" }, target, "ship");
+      // Runs whatever the recorded trigger says: a hook can outlive the
+      // trigger that installed it, and that hook is the thing to switch off.
+      const updated = config.trigger === "github-push"
+        ? await setDeploymentMode({ ...config, trigger: "ship" }, target, "ship")
+        : config;
       await writeFile(configPath, `${JSON.stringify(updated, null, 2)}\n`);
       await disableWebhook(updated, true);
       await offerSetupCommit(updated);
-      outro(`Pushes no longer deploy. Deploys run on: bun ship`);
+      outro("Pushes no longer deploy. Deploys run on: bun ship");
       return;
     }
     if (!Bun.which("gh")) throw new Error("Push-to-deploy needs the GitHub CLI.\n\nNext: install gh from https://cli.github.com, then run bun ship:webhook.");
+    const already = config.trigger === "github-push";
     explain(
-      "Push-to-deploy",
+      already ? "Push-to-deploy: repair" : "Push-to-deploy",
       `Every push to ${config.branch} deploys ${config.domain} automatically.\nThe webhook secret travels from server to GitHub CLI through memory only.`,
     );
     await ensureGitHubAuth();
-    if (!await approve("Install webhook and switch to push-to-deploy?")) {
+    if (!await approve(already ? "Repair the webhook and keep push-to-deploy?" : "Install webhook and switch to push-to-deploy?")) {
       throw new Error("Next: run bun ship:webhook when you want pushes to deploy.");
     }
+    // Hook first, then the trigger: if the trigger switch fails, the hook is
+    // taken back down, so an active hook always means trigger github-push.
     await ensureWebhook(config, target, true);
-    const updated = await setDeploymentMode({ ...config, trigger: "github-push" }, target, "github-push");
+    let updated: ClientConfig;
+    try {
+      updated = await setDeploymentMode({ ...config, trigger: "github-push" }, target, "github-push");
+    } catch (error) {
+      await disableWebhook(config, true);
+      throw error;
+    }
     await writeFile(configPath, `${JSON.stringify(updated, null, 2)}\n`);
     await offerSetupCommit(updated);
     outro(`git push origin ${updated.branch} now deploys. Undo: bun ship:webhook --off`);
@@ -1507,28 +1574,40 @@ async function runWebhook(): Promise<void> {
 async function setup(force: boolean): Promise<{ config: ClientConfig; target: string; changed: boolean } | undefined> {
   let config = await readConfig();
   const first = force || !config;
-  if (first && await prepareCompose()) return undefined;
+  const previous = config;
+  // Projects set up before ship:webhook existed keep their github-push
+  // trigger; new ones deploy on bun ship until ship:webhook says otherwise.
+  const trigger = previous?.trigger ?? "ship";
+  let deployment: { decision: DeploymentDecision; pending: boolean } | undefined;
+  if (first) {
+    deployment = await prepareDeployment();
+    if (!deployment) return undefined;
+  }
   let target = await configuredSshTarget(config?.server.hostname);
   if (!target) target = await requestSshTarget(config?.server.hostname);
   if (!target) throw new Error("SSH server is required");
-  const previous = config;
-  if (first) {
+  if (first && deployment) {
     // Question two of two. Everything after this is plan, confirm, run.
     const domain = await resolveDomain(config);
     const facts = await projectFacts();
     if (!facts.origin && agentRun) {
       throw new Error(`This project has no GitHub origin.\n\nAgent: ask user whether to create a repository for ${facts.name}, then run bun ship:setup -y (add --public for a public repo).`);
     }
+    const owner = facts.origin ? undefined : await githubOwner();
+    const willCommit = !facts.committed || !facts.composeTracked || facts.dirty || deployment.pending || !previous;
+    // Rendered in every mode, prompted in none but a plan run: even under
+    // --yes the transcript has to say what this run is about to do.
+    explain("Plan", setupPlanLines({
+      target,
+      domain,
+      branch: facts.branch,
+      newRepository: facts.origin ? undefined : owner ? `${owner}/${facts.name}` : facts.name,
+      visibility: options.publicRepo ? "public" : "private",
+      generate: deploymentPlanLine(deployment.decision),
+      commit: willCommit,
+      trigger,
+    }).join("\n"));
     if (planSetup()) {
-      const owner = facts.origin ? undefined : await githubOwner();
-      explain("Plan", setupPlanLines({
-        target,
-        domain,
-        branch: facts.branch,
-        newRepository: facts.origin ? undefined : owner ? `${owner}/${facts.name}` : facts.name,
-        visibility: options.publicRepo ? "public" : "private",
-        commit: facts.dirty || !facts.committed || !facts.composeTracked,
-      }).join("\n"));
       const accepted = await confirm({ message: "Run setup?", initialValue: true });
       if (isCancel(accepted) || !accepted) {
         cancel("Setup cancelled. Nothing was changed.");
@@ -1536,18 +1615,19 @@ async function setup(force: boolean): Promise<{ config: ClientConfig; target: st
       }
       planApproved = true;
     }
+    if (deployment.pending) await writeDeployment(deployment.decision);
     // A repository needs a commit before it can be pushed, and registration
-    // reads the Compose file out of the committed tree. Each approve() below
-    // is already answered by the plan confirm; only --interactive asks again.
+    // reads the Compose file out of the committed tree. Each approvePlanned()
+    // here is answered by the plan confirm; only --interactive asks again.
     if (!facts.committed) {
-      if (!await approve("Commit this project now?")) throw new Error("Next: commit your project, then run bun ship:setup.");
+      if (!await approvePlanned("Commit this project now?")) throw new Error("Next: commit your project, then run bun ship:setup.");
       await commitEverything("Initial commit");
-    } else if (!facts.composeTracked) {
-      if (!await approve("Commit the deployment files now?")) throw new Error("Next: commit the deployment files, then run bun ship:setup.");
+    } else if (!facts.composeTracked || deployment.pending) {
+      if (!await approvePlanned("Commit the deployment files now?")) throw new Error("Next: commit the deployment files, then run bun ship:setup.");
       await commitDeploymentFiles();
     }
     if (!facts.origin) {
-      if (!await approve(`Create ${options.publicRepo ? "public" : "private"} repo ${facts.name} and push ${facts.branch}?`)) {
+      if (!await approvePlanned(`Create ${options.publicRepo ? "public" : "private"} repo ${facts.name} and push ${facts.branch}?`)) {
         throw new Error("Next: create the repository, add it as origin, then run bun ship:setup.");
       }
       await createGitHubRepository(facts);
@@ -1556,15 +1636,28 @@ async function setup(force: boolean): Promise<{ config: ClientConfig; target: st
   }
   if (!config) throw new Error("deployment setup did not return client configuration");
   await rememberSshTarget(config.server.hostname, target);
-  // Projects set up before ship:webhook existed keep their github-push
-  // trigger; new ones deploy on bun ship until ship:webhook says otherwise.
-  const trigger = previous?.trigger ?? "ship";
   config = await setDeploymentMode({ ...config, trigger }, target, trigger);
-  if (force) {
+  if (first) {
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
-    if (trigger === "ship") log.success("Deployments run through bun ship");
+    log.success(trigger === "ship"
+      ? "Deployments run through bun ship"
+      : `Deployments run on every push to ${config.branch}`);
+    // The plan said commit and push, so this run does both.
+    if (await offerSetupCommit(config) !== "declined") await pushSetupCommit(config.branch);
   }
   return { config, target, changed: !previous || JSON.stringify(previous) !== JSON.stringify(config) };
+}
+
+async function pushSetupCommit(branch: string): Promise<void> {
+  if ((await run(["git", "remote", "get-url", "origin"], { allowFailure: true })).exitCode !== 0) return;
+  const ahead = await run(["git", "rev-list", "--count", `origin/${branch}..HEAD`], { allowFailure: true });
+  if (ahead.exitCode === 0 && ahead.stdout.trim() === "0") return;
+  const push = await run(["git", "push", "origin", branch], { inherit: true, allowFailure: true });
+  if (push.exitCode !== 0) {
+    log.warn(`Could not push ${branch}.\nNext: git push origin ${branch}, then run bun ship.`);
+    return;
+  }
+  log.success(`Pushed ${branch} to origin`);
 }
 
 // Refuse ambiguous deploys: wrong origin, wrong branch, dirty work, or remote
@@ -1842,7 +1935,7 @@ async function followStatus(config: ClientConfig, target: string, commit: string
     }
     if (!lastStage && Date.now() >= webhookDeadline) {
       progress.stop("Webhook did not start deployment", 1);
-      throw new Error(`GitHub webhook did not reach shibumi-server.\n\nNext: check https://github.com/${config.repository.slice("github:".length)}/settings/hooks, then rerun bun ship after repairing delivery.`);
+      throw new Error(`GitHub webhook did not reach shibumi-server.\n\nNext: run bun ship:webhook to repair delivery (or bun ship:webhook --off to deploy with bun ship instead).\n\nGitHub: https://github.com/${config.repository.slice("github:".length)}/settings/hooks`);
     }
     await Bun.sleep(2_000);
   }
