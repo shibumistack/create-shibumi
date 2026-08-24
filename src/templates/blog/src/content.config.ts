@@ -11,6 +11,9 @@ const blog = defineCollection({
     description: z.string().min(50).max(160),
     date: z.coerce.date(),
     ogImage: z.string().optional(),
+    // Draft posts build nowhere: no page, no listing, no RSS, no llms.txt.
+    // Flip to false (or remove the line) to publish.
+    draft: z.boolean().default(false),
   }),
 });
 

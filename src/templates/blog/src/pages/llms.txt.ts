@@ -5,7 +5,7 @@ import { getCollection } from "astro:content";
 import { SITE } from "../site";
 
 export const GET: APIRoute = async (context) => {
-  const posts = (await getCollection("blog")).sort(
+  const posts = (await getCollection("blog", ({ data }) => !data.draft)).sort(
     (a, b) => b.data.date.valueOf() - a.data.date.valueOf()
   );
   const lines = [

@@ -4,7 +4,7 @@ import { getCollection, getEntry } from "astro:content";
 import type { APIRoute } from "astro";
 
 export async function getStaticPaths() {
-  return (await getCollection("blog")).map((post) => ({ params: { id: post.id } }));
+  return (await getCollection("blog", ({ data }) => !data.draft)).map((post) => ({ params: { id: post.id } }));
 }
 
 export const GET: APIRoute = async ({ params }) => {

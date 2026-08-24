@@ -14,7 +14,9 @@ bun ship         # verify dist/, build the static image, upload, deploy
 
 ## Routes and templates
 
-- Posts are markdown files in `src/content/blog/`; the schema in `src/content.config.ts` requires title (max 60), description (50 to 160 characters, drives meta/RSS/llms.txt), date, optional ogImage.
+- Posts are markdown files in `src/content/blog/`; the schema in `src/content.config.ts` requires title (max 60), description (50 to 160 characters, drives meta/RSS/llms.txt), date, optional ogImage, and an optional `draft` flag (default false).
+- `draft: true` keeps a post out of everything: no page, no listing, no RSS, no llms.txt, no markdown alternate. Publish by removing the flag and running `bun ship`.
+- Images: put files in `src/assets/` and reference them relatively from the markdown (`![alt](../../assets/photo.jpg)`); Astro optimizes them at build. Files in `public/` are served verbatim by URL.
 - `src/pages/index.astro` lists posts; `src/pages/posts/[id].astro` renders one; `src/layouts/Base.astro` and `src/components/BaseHead.astro` own the frame and every meta tag.
 - Generated endpoints: `/rss.xml`, `/llms.txt`, `/robots.txt`, and a markdown alternate for every post at `/posts/<id>.md`. All derive from the content collection; never hand-edit their output.
 - Site identity lives in `src/site.ts`. Design lives in `public/style.css` (one file, shibumi tokens, semantic selectors).
