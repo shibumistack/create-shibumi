@@ -92,6 +92,8 @@ interface ShipOptions {
   off: boolean;
   rebuild: boolean;
   yes: boolean;
+  interactive: boolean;
+  publicRepo: boolean;
   server?: string;
   domain?: string;
   staticSite: boolean;
@@ -107,7 +109,7 @@ export interface StaticSiteConfig {
   spa: boolean;
 }
 
-let options: ShipOptions = { setup: false, update: false, rollback: false, logs: false, status: false, dev: false, webhook: false, off: false, rebuild: false, yes: false, staticSite: false, spa: false };
+let options: ShipOptions = { setup: false, update: false, rollback: false, logs: false, status: false, dev: false, webhook: false, off: false, rebuild: false, yes: false, interactive: false, publicRepo: false, staticSite: false, spa: false };
 let agentRun = false;
 
 export function isAgentExecution(env: NodeJS.ProcessEnv = process.env, stdinTTY = Boolean(process.stdin.isTTY), stdoutTTY = Boolean(process.stdout.isTTY)): boolean {
@@ -149,7 +151,7 @@ function spinner(): ShipSpinner {
 }
 
 export function parseShipArgs(args: string[]): ShipOptions {
-  const parsed: ShipOptions = { setup: false, update: false, rollback: false, logs: false, status: false, dev: false, webhook: false, off: false, rebuild: false, yes: false, staticSite: false, spa: false };
+  const parsed: ShipOptions = { setup: false, update: false, rollback: false, logs: false, status: false, dev: false, webhook: false, off: false, rebuild: false, yes: false, interactive: false, publicRepo: false, staticSite: false, spa: false };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--") continue;
@@ -163,6 +165,8 @@ export function parseShipArgs(args: string[]): ShipOptions {
     else if (argument === "--off") parsed.off = true;
     else if (argument === "--rebuild") parsed.rebuild = true;
     else if (argument === "--yes" || argument === "-y") parsed.yes = true;
+    else if (argument === "--interactive") parsed.interactive = true;
+    else if (argument === "--public") parsed.publicRepo = true;
     else if (argument === "--static") parsed.staticSite = true;
     else if (argument === "--spa") parsed.spa = true;
     else if (argument === "--no-spa") parsed.noSpa = true;
@@ -179,6 +183,9 @@ export function parseShipArgs(args: string[]): ShipOptions {
   if ([parsed.setup, parsed.update, parsed.rollback, parsed.logs, parsed.status, parsed.dev, parsed.webhook].filter(Boolean).length > 1) throw new Error("choose only one ship action");
   if (parsed.rebuild && (parsed.setup || parsed.update || parsed.rollback || parsed.logs || parsed.status || parsed.dev || parsed.webhook)) throw new Error("--rebuild applies only to shipping");
   if (parsed.off && !parsed.webhook) throw new Error("--off requires --webhook");
+  if (parsed.interactive && !parsed.setup) throw new Error("--interactive requires --setup");
+  if (parsed.publicRepo && !parsed.setup) throw new Error("--public requires --setup");
+  if (parsed.interactive && parsed.yes) throw new Error("--interactive and --yes are mutually exclusive");
   if (parsed.spa && parsed.noSpa) throw new Error("--spa and --no-spa are mutually exclusive");
   if ((parsed.staticSite || parsed.outputDir || parsed.buildScript || parsed.spa || parsed.noSpa) && !parsed.setup) throw new Error("--static, --output-dir, --build-script, and --spa require --setup");
   if ((parsed.outputDir || parsed.buildScript || parsed.spa || parsed.noSpa) && !parsed.staticSite) throw new Error("--output-dir, --build-script, and --spa require --static");
@@ -298,8 +305,18 @@ async function rememberSshTarget(hostname: string, sshTarget: string): Promise<v
   log.success(`Saved server ${sshTarget} in ${path}`);
 }
 
+// Setup asks two questions, shows the plan, and runs it on one confirm. Once
+// that confirm lands, every step it described is already approved; the
+// per-step gates below only survive for `--setup --interactive`.
+let planApproved = false;
+
+function planSetup(): boolean {
+  return !options.interactive && !options.yes && !agentRun
+    && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
+}
+
 async function approve(message: string): Promise<boolean> {
-  if (options.yes || agentRun) return true;
+  if (options.yes || agentRun || planApproved) return true;
   const accepted = await confirm({ message, initialValue: true });
   return !isCancel(accepted) && accepted;
 }
@@ -787,6 +804,9 @@ async function prepareCompose(): Promise<boolean> {
   const names = ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"];
   const existingCompose = (await Promise.all(names.map(async (name) => await Bun.file(join(root, name)).exists() ? name : undefined))).find(Boolean);
   if (existingCompose) {
+    // The setup plan commits it in this same run; other modes stop here so
+    // the user reviews what they are about to deploy.
+    if (planSetup()) return false;
     outro(`Found uncommitted ${existingCompose}.\n\nNext: review it, commit and push it, then run bun ship:setup.`);
     return true;
   }
@@ -809,7 +829,7 @@ async function prepareCompose(): Promise<boolean> {
 
   if (wantStatic) {
     await generateStaticDeployment();
-    if (await offerGeneratedCommit(["Dockerfile", "compose.yaml", ".dockerignore", "scripts/static-server.ts", "package.json", "bun.lock"])) return false;
+    if (planSetup() || await offerGeneratedCommit(["Dockerfile", "compose.yaml", ".dockerignore", "scripts/static-server.ts", "package.json", "bun.lock"])) return false;
     outro("Review generated deployment files.\n\nNext: commit and push these changes, then run bun ship:setup.");
     return true;
   }
@@ -829,7 +849,7 @@ async function prepareCompose(): Promise<boolean> {
   }
   log.success(`Generated ${written.join(", ")}`);
   log.info("Verify the app binds to 0.0.0.0 and reads PORT before shipping.");
-  if (await offerGeneratedCommit(written)) return false;
+  if (planSetup() || await offerGeneratedCommit(written)) return false;
   outro("Review generated deployment files and verify app binds to 0.0.0.0 and reads PORT.\n\nNext: commit and push these changes, then run bun ship:setup.");
   return true;
 }
@@ -938,6 +958,152 @@ async function generateStaticDeployment(): Promise<void> {
   log.success(`Generated ${written.join(", ")}`);
 }
 
+// ── Repository facts ───────────────────────────────────────────────────
+// Setup runs before a project necessarily has commits or a GitHub origin, so
+// these read the repository defensively. inferredProject below assumes both
+// and only runs once the plan has supplied them.
+
+interface ProjectFacts {
+  name: string;
+  branch: string;
+  origin?: string;
+  committed: boolean;
+  composeTracked: boolean;
+  dirty: boolean;
+}
+
+export function repositoryNameFromProject(packageName: unknown, directory: string): string {
+  const candidate = typeof packageName === "string" && packageName ? packageName.replace(/^@[^/]+\//, "") : directory;
+  return candidate.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[._-]+|[._-]+$/g, "") || "app";
+}
+
+async function projectFacts(): Promise<ProjectFacts> {
+  if ((await run(["git", "rev-parse", "--git-dir"], { allowFailure: true })).exitCode !== 0) {
+    throw new Error("This project is not a Git repository.\n\nNext: run git init, then bun ship:setup.");
+  }
+  const packageJson = await Bun.file(join(root, "package.json")).json().catch(() => ({})) as { name?: unknown };
+  const remote = await run(["git", "remote", "get-url", "origin"], { allowFailure: true });
+  let origin: string | undefined;
+  if (remote.exitCode === 0 && remote.stdout.trim()) {
+    try {
+      origin = repositoryFromRemote(remote.stdout.trim());
+    } catch {
+      throw new Error(`origin ${remote.stdout.trim()} is not a GitHub repository.\n\nNext: point origin at GitHub, then run bun ship:setup.`);
+    }
+  }
+  const branch = (await run(["git", "branch", "--show-current"], { allowFailure: true })).stdout.trim();
+  if (!branch) throw new Error("ship requires a named Git branch");
+  const tracked = (await run(["git", "ls-files"], { allowFailure: true })).stdout.split("\n").filter(Boolean);
+  return {
+    name: repositoryNameFromProject(packageJson.name, root.split("/").pop() ?? "app"),
+    branch,
+    origin,
+    committed: (await run(["git", "rev-parse", "--verify", "HEAD"], { allowFailure: true })).exitCode === 0,
+    composeTracked: composeCandidates(tracked).length > 0,
+    dirty: Boolean((await run(["git", "status", "--porcelain"], { allowFailure: true })).stdout.trim()),
+  };
+}
+
+// The domain question comes before the plan, so it cannot wait for
+// inferredProject (which needs a tracked Compose file and an origin).
+async function inferredDomain(): Promise<string | undefined> {
+  const packageJson = await Bun.file(join(root, "package.json")).json().catch(() => ({})) as { name?: unknown };
+  let compose = "";
+  for (const name of ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"]) {
+    const file = Bun.file(join(root, name));
+    if (await file.exists()) {
+      compose = await file.text();
+      break;
+    }
+  }
+  return domainFromProject(packageJson.name, compose);
+}
+
+async function resolveDomain(current?: ClientConfig): Promise<string> {
+  const known = setupDomain(options.domain, current?.domain, await inferredDomain());
+  if (known) return known;
+  if (agentRun || options.yes) throw new Error("App domain could not be inferred.\n\nAgent: ask user for the app domain, then run bun ship:setup --domain <domain>");
+  const answer = await text({
+    message: "App domain",
+    placeholder: "example.com",
+    validate: (value) => value && DOMAIN.test(value) ? undefined : "Use a lowercase public hostname",
+  });
+  if (isCancel(answer)) throw new Error("setup cancelled");
+  return answer;
+}
+
+// The first commit belongs to the user, so create-shibumi never makes one;
+// approving the plan is where the user makes it.
+async function commitEverything(message: string): Promise<boolean> {
+  await run(["git", "add", "-A"]);
+  if ((await run(["git", "diff", "--cached", "--quiet"], { allowFailure: true })).exitCode === 0) return false;
+  const commit = await run(["git", "commit", "-m", message], { inherit: true, allowFailure: true });
+  if (commit.exitCode !== 0) throw new Error("git commit failed.\n\nNext: fix the git error above (identity, hooks), then run bun ship:setup.");
+  log.success(`Committed: ${message}`);
+  return true;
+}
+
+// A repository with history gets a path-scoped commit instead, so unrelated
+// work in progress is never swept into a deployment commit.
+const DEPLOYMENT_FILES = ["Dockerfile", "compose.yaml", "compose.yml", ".dockerignore", "scripts/static-server.ts", "package.json", "bun.lock"];
+
+async function commitDeploymentFiles(): Promise<boolean> {
+  const present: string[] = [];
+  for (const file of DEPLOYMENT_FILES) if (await Bun.file(join(root, file)).exists()) present.push(file);
+  if (present.length === 0) return false;
+  await run(["git", "add", "--", ...present]);
+  if ((await run(["git", "diff", "--cached", "--quiet", "--", ...present], { allowFailure: true })).exitCode === 0) return false;
+  const commit = await run(["git", "commit", "--only", "-m", "Add deployment configuration", "--", ...present], { inherit: true, allowFailure: true });
+  if (commit.exitCode !== 0) throw new Error("git commit failed.\n\nNext: fix the git error above (identity, hooks), then run bun ship:setup.");
+  log.success("Committed deployment configuration");
+  return true;
+}
+
+// No GitHub origin is not an error: setup offers to create the repository.
+// Private by default; --public opts out. There is no visibility question.
+async function createGitHubRepository(facts: ProjectFacts): Promise<string> {
+  if (!Bun.which("gh")) {
+    throw new Error("Creating the GitHub repository needs the GitHub CLI.\n\nNext: install gh from https://cli.github.com, or add an origin remote yourself, then run bun ship:setup.");
+  }
+  await ensureGitHubAuth();
+  const created = await run([
+    "gh", "repo", "create", facts.name, options.publicRepo ? "--public" : "--private",
+    "--source", ".", "--remote", "origin", "--push",
+  ], { allowFailure: true });
+  if (created.exitCode !== 0) {
+    throw new Error(`${created.stderr.trim() || "gh repo create failed"}\n\nNext: create the repository yourself, add it as origin, then run bun ship:setup.`);
+  }
+  const origin = repositoryFromRemote(await git("remote", "get-url", "origin"));
+  log.success(`Created ${options.publicRepo ? "public" : "private"} repo ${origin} and pushed ${facts.branch}`);
+  return origin;
+}
+
+async function githubOwner(): Promise<string | undefined> {
+  if (!Bun.which("gh")) return undefined;
+  const login = await run(["gh", "api", "user", "--jq", ".login"], { allowFailure: true });
+  return login.exitCode === 0 && login.stdout.trim() ? login.stdout.trim() : undefined;
+}
+
+// One rendered block instead of six questions. Every line names something
+// the single "Run setup?" confirm authorises.
+export function setupPlanLines(input: {
+  target: string;
+  domain: string;
+  branch: string;
+  newRepository?: string;
+  visibility: "private" | "public";
+  commit: boolean;
+}): string[] {
+  return [
+    ...(input.newRepository ? [`Create ${input.visibility} repo ${input.newRepository}, push ${input.branch}`] : []),
+    `Connect to ${input.target}, save target for this project`,
+    "Install or upgrade shibumi-server (sudo password once)",
+    `Register ${input.domain}`,
+    ...(input.commit ? ["Commit and push deployment files"] : []),
+    "Deploys run on: bun ship",
+  ];
+}
+
 async function inferredProject() {
   const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as { name?: unknown; version?: unknown; scripts?: Record<string, unknown> };
   const repository = repositoryFromRemote(await git("remote", "get-url", "origin"));
@@ -1024,10 +1190,14 @@ async function requestSshTarget(configHostname?: string): Promise<string | undef
     if (!suggestion) throw new Error("SSH server could not be inferred.\n\nAgent: ask user for their SSH target (user@host or SSH alias), then run bun ship:setup --server <target>");
     return suggestion;
   }
-  explain(
-    "Local configuration",
-    `Use the same user@server target or SSH alias you use in your terminal.\nIt will be saved in ${clientSettingsPath()} on this computer and will not be committed.\nResolved server hostname, app domain, and deploy settings go in committed shibumi-server.json.`,
-  );
+  // The plan states where the target is saved and that it is not committed,
+  // so plan mode goes straight to the question.
+  if (!planSetup()) {
+    explain(
+      "Local configuration",
+      `Use the same user@server target or SSH alias you use in your terminal.\nIt will be saved in ${clientSettingsPath()} on this computer and will not be committed.\nResolved server hostname, app domain, and deploy settings go in committed shibumi-server.json.`,
+    );
+  }
   const answer = await text({
     message: "SSH target (user@server or alias)",
     placeholder: suggestion ?? "user@example-vps.com",
@@ -1036,7 +1206,7 @@ async function requestSshTarget(configHostname?: string): Promise<string | undef
   if (isCancel(answer)) return undefined;
   const target = answer || suggestion;
   if (!target) return undefined;
-  if (!await approve(`Save ${target} locally and connect?`)) return undefined;
+  if (!planSetup() && !await approve(`Save ${target} locally and connect?`)) return undefined;
   return target;
 }
 
@@ -1112,19 +1282,8 @@ async function ensureServer(target: string): Promise<void> {
 
 // Reuse an existing registration silently. New apps retain interactive SSH so
 // server and sudo prompts stay attached to the local terminal.
-async function remoteSetup(target: string, _force: boolean, current?: ClientConfig): Promise<ClientConfig> {
+async function remoteSetup(target: string, domain: string): Promise<ClientConfig> {
   const project = await inferredProject();
-  let domain = setupDomain(options.domain, current?.domain, project.domain);
-  if (!domain && (agentRun || options.yes)) throw new Error("App domain could not be inferred.\n\nAgent: ask user for the app domain, then run bun ship:setup --domain <domain>");
-  if (!domain) {
-    const answer = await text({
-      message: "App domain",
-      placeholder: "example.com",
-      validate: (value) => value && DOMAIN.test(value) ? undefined : "Use a lowercase public hostname",
-    });
-    if (isCancel(answer)) throw new Error("setup cancelled");
-    domain = answer;
-  }
   const serverHostname = await resolvedSshHostname(target);
   await rememberSshTarget(serverHostname, target);
   await ensureServer(target);
@@ -1347,13 +1506,54 @@ async function runWebhook(): Promise<void> {
 
 async function setup(force: boolean): Promise<{ config: ClientConfig; target: string; changed: boolean } | undefined> {
   let config = await readConfig();
-  if ((force || !config) && await prepareCompose()) return undefined;
-  if (force || !config) await inferredProject();
+  const first = force || !config;
+  if (first && await prepareCompose()) return undefined;
   let target = await configuredSshTarget(config?.server.hostname);
   if (!target) target = await requestSshTarget(config?.server.hostname);
   if (!target) throw new Error("SSH server is required");
   const previous = config;
-  if (force || !config) config = await remoteSetup(target, force, config);
+  if (first) {
+    // Question two of two. Everything after this is plan, confirm, run.
+    const domain = await resolveDomain(config);
+    const facts = await projectFacts();
+    if (!facts.origin && agentRun) {
+      throw new Error(`This project has no GitHub origin.\n\nAgent: ask user whether to create a repository for ${facts.name}, then run bun ship:setup -y (add --public for a public repo).`);
+    }
+    if (planSetup()) {
+      const owner = facts.origin ? undefined : await githubOwner();
+      explain("Plan", setupPlanLines({
+        target,
+        domain,
+        branch: facts.branch,
+        newRepository: facts.origin ? undefined : owner ? `${owner}/${facts.name}` : facts.name,
+        visibility: options.publicRepo ? "public" : "private",
+        commit: facts.dirty || !facts.committed || !facts.composeTracked,
+      }).join("\n"));
+      const accepted = await confirm({ message: "Run setup?", initialValue: true });
+      if (isCancel(accepted) || !accepted) {
+        cancel("Setup cancelled. Nothing was changed.");
+        return undefined;
+      }
+      planApproved = true;
+    }
+    // A repository needs a commit before it can be pushed, and registration
+    // reads the Compose file out of the committed tree. Each approve() below
+    // is already answered by the plan confirm; only --interactive asks again.
+    if (!facts.committed) {
+      if (!await approve("Commit this project now?")) throw new Error("Next: commit your project, then run bun ship:setup.");
+      await commitEverything("Initial commit");
+    } else if (!facts.composeTracked) {
+      if (!await approve("Commit the deployment files now?")) throw new Error("Next: commit the deployment files, then run bun ship:setup.");
+      await commitDeploymentFiles();
+    }
+    if (!facts.origin) {
+      if (!await approve(`Create ${options.publicRepo ? "public" : "private"} repo ${facts.name} and push ${facts.branch}?`)) {
+        throw new Error("Next: create the repository, add it as origin, then run bun ship:setup.");
+      }
+      await createGitHubRepository(facts);
+    }
+    config = await remoteSetup(target, domain);
+  }
   if (!config) throw new Error("deployment setup did not return client configuration");
   await rememberSshTarget(config.server.hostname, target);
   // Projects set up before ship:webhook existed keep their github-push
