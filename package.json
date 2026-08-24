@@ -9,6 +9,7 @@
   "files": [
     "src/cli.ts",
     "src/args.ts",
+    "src/adopt.ts",
     "src/create.ts",
     "src/templates/ship.ts",
     "src/templates/shibumi.ts",

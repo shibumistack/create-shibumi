@@ -13,7 +13,7 @@ bun sync:ship   # re-vendor Ship client from the locked immutable snapshot
 
 ## Layout
 
-- `src/cli.ts`: entry, prompts, exit codes. `src/args.ts`: strict parser. `src/create.ts`: atomic scaffold.
+- `src/cli.ts`: entry, prompts, exit codes. `src/args.ts`: strict parser. `src/create.ts`: atomic scaffold. `src/adopt.ts`: `bun create shibumi .` on an existing project (vendor the client, add scripts, generate the static image files).
 - `src/templates/<id>/`: template assets copied verbatim into generated projects (template `test/` folders ship to projects; they are not this package's tests).
 - `src/templates/ship.ts`: vendored Ship client, byte-locked to `scripts/ship.lock.json`. Never edit by hand; update the lock and run `bun sync:ship`.
 - `src/extensions/`: auth and email extension assets; installer lands in a later workstream.
@@ -28,6 +28,8 @@ bun sync:ship   # re-vendor Ship client from the locked immutable snapshot
 - Security gates from the release plan are hard blocks: no unauthenticated mutation endpoints in templates, adversarial review before any publish, HIGH findings block.
 
 ## Gotchas
+
+- Never `import` `src/templates/ship.ts` from anything in `include` (tsconfig): the client is authored without `noUncheckedIndexedAccess` and adds ten errors to `bun check` the moment it joins this program. `src/adopt.ts` reuses its static-image generators through a computed dynamic import (specifier in a variable, so tsc leaves it as `any`), always after verifying the checksum lock; tests drive the client through its entry point or a child process instead.
 
 - `bun build` inlines `process.env.NODE_ENV` at build time (defaults to "development"), so the runtime container `ENV NODE_ENV=production` is ignored in bundled code. Read `process.env["NODE_ENV"]` (bracket form) to force a runtime lookup. Caught only by running the built container, never by unit tests (they run from source). Extensions gate security behavior on this (auth login-link fail-closed).
 - `bun-types` already declares `*.yaml` and `*.yml` (`export = any`). Do NOT add a `declare module "*.yaml"` shim — it collides (TS2309 "export assignment ... other exported elements"). Just `import cfg from "./x.yaml"`; Bun bundles the parsed value into the image at build.

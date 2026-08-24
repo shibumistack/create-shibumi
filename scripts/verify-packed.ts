@@ -358,7 +358,7 @@ function main(): void {
     fail(failStep, "failed scaffold wrote into the existing directory");
   }
 
-  for (const flag of ["--nope", "--spa", "--output-dir=dist", "--build-script=build"]) {
+  for (const flag of ["--nope", "--output-dir=dist", "--build-script=build"]) {
     const name = "flag-check";
     const result = run([cli, name, "--yes", "--template", "full-stack", flag], fixturesDir);
     const bare = flag.split("=")[0]!;
@@ -368,9 +368,42 @@ function main(): void {
     }
     if (existsSync(join(fixturesDir, name))) fail(failStep, `${flag} still scaffolded a project`);
   }
+  // --spa belongs to adopting an existing project, never to scaffolding.
+  const spaScaffold = run([cli, "flag-check", "--yes", "--template", "full-stack", "--spa"], fixturesDir);
+  if (spaScaffold.code !== 2 || !spaScaffold.stderr.includes("--spa applies to adopting an existing project")) {
+    fail(failStep, `--spa on a scaffold: expected exit 2 pointing at adopt, got ${spaScaffold.code}:\n${spaScaffold.stderr}`);
+  }
+
   const leftovers = readdirSync(fixturesDir).filter((entry) => entry.includes("shibumi-tmp"));
   if (leftovers.length > 0) fail(failStep, `failed scaffolds left temp siblings: ${leftovers.join(", ")}`);
   console.log("failure paths ok");
+
+  // 6. Adopt an existing project from the tarball ---------------------------------
+
+  const adoptStep = "adopt";
+  const adoptDir = join(fixturesDir, "adopt-astro");
+  mkdirSync(adoptDir, { recursive: true });
+  writeFileSync(
+    join(adoptDir, "package.json"),
+    `${JSON.stringify({ name: "adopt-astro", private: true, scripts: { build: "astro build" }, dependencies: { astro: "7.2.4" } }, null, 2)}\n`
+  );
+  must(adoptStep, [cli, ".", "--yes"], adoptDir);
+  for (const artifact of ["scripts/ship.ts", "Dockerfile", "compose.yaml", ".dockerignore"]) {
+    if (!existsSync(join(adoptDir, artifact))) fail(adoptStep, `${artifact} missing after adopt`);
+  }
+  const adoptPkg = JSON.parse(readFileSync(join(adoptDir, "package.json"), "utf8")) as {
+    scripts: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  if (adoptPkg.scripts["ship:setup"] !== "bun scripts/ship.ts --setup --static --output-dir dist --build-script build --no-spa") {
+    fail(adoptStep, `unexpected ship:setup script: ${adoptPkg.scripts["ship:setup"]}`);
+  }
+  if (!adoptPkg.devDependencies?.["@clack/prompts"]) {
+    fail(adoptStep, "adopt did not declare the @clack/prompts dependency the client imports");
+  }
+  if (existsSync(join(adoptDir, ".git"))) fail(adoptStep, "adopt initialized git");
+  assertNoLeaks(adoptStep, adoptDir, forbidden);
+  console.log("adopt ok");
 
   console.log(`\nPacked verification green.\nTarball sha256: ${digest}`);
 }

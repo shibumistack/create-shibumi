@@ -95,14 +95,30 @@ describe("parseArgs", () => {
   });
 
   it("rejects the dropped static-answer flags as unknown", () => {
-    // ship:setup owns output dir, build script, and SPA choices now
-    // (owner decision, ws7); the create surface must not half-support them.
-    expect(err(["x", "--template", "static", "--spa"])).toBe("Unknown flag: --spa");
+    // ship:setup owns output dir and build script (owner decision, ws7); the
+    // create surface must not half-support them.
     expect(err(["x", "--template", "static", "--output-dir", "dist"])).toBe(
       "Unknown flag: --output-dir"
     );
     expect(err(["x", "--template", "static", "--build-script", "build"])).toBe(
       "Unknown flag: --build-script"
     );
+  });
+
+  it("keeps --spa attached to adopting an existing project", () => {
+    expect(ok([".", "--spa"])).toMatchObject({ adopt: true, spa: true });
+    expect(err(["x", "--template", "static", "--spa"])).toBe(
+      "--spa applies to adopting an existing project: bun create shibumi ."
+    );
+  });
+
+  it("treats a lone dot as the adopt target", () => {
+    const a = ok(["."]);
+    expect(a.adopt).toBe(true);
+    expect(a.name).toBeUndefined();
+    // Adopting is not scaffolding, so --yes needs no name and no template.
+    expect(ok([".", "--yes"]).yes).toBe(true);
+    expect(err([".", "--template", "blog"])).toContain("--template does not apply");
+    expect(err(["./nested"])).toContain("Invalid project name");
   });
 });

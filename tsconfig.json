@@ -10,5 +10,5 @@
     "noUncheckedIndexedAccess": true,
     "types": ["bun-types"]
   },
-  "include": ["src/args.ts", "src/create.ts", "src/cli.ts", "src/templates/shibumi.ts", "scripts/sync-extensions.ts", "scripts/sync-ship.ts", "scripts/verify-packed.ts", "test"]
+  "include": ["src/args.ts", "src/adopt.ts", "src/create.ts", "src/cli.ts", "src/templates/shibumi.ts", "scripts/sync-extensions.ts", "scripts/sync-ship.ts", "scripts/verify-packed.ts", "test"]
 }

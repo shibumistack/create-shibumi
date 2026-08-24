@@ -34,7 +34,7 @@ jobs:
               || /(^|\/)(\.env|id_rsa|.*\.(pem|key|p12))$/.test(p));
             if (bad.length) { console.error("unexpected packed files:", bad); process.exit(1); }
             const required = [
-              "src/cli.ts", "src/args.ts", "src/create.ts",
+              "src/cli.ts", "src/args.ts", "src/adopt.ts", "src/create.ts",
               "src/templates/ship.ts",
               "src/templates/shibumi.ts",
               "scripts/ship.lock.json",

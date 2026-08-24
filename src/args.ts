@@ -7,6 +7,9 @@ export interface ParsedArgs {
   yes: boolean;
   git: boolean;
   install: boolean;
+  // `bun create shibumi .` adopts the current project instead of scaffolding.
+  adopt: boolean;
+  spa: boolean;
   name?: string;
   template?: TemplateId;
 }
@@ -41,6 +44,7 @@ const BOOLEAN_FLAGS = new Set([
   "-y",
   "--no-git",
   "--no-install",
+  "--spa",
 ]);
 
 export function validateName(name: string): string | null {
@@ -60,6 +64,8 @@ export function parseArgs(argv: string[]): ParseResult {
     yes: false,
     git: true,
     install: true,
+    adopt: false,
+    spa: false,
   };
   const positionals: string[] = [];
 
@@ -110,6 +116,7 @@ export function parseArgs(argv: string[]): ParseResult {
       else if (flag === "--yes" || flag === "-y") args.yes = true;
       else if (flag === "--no-git") args.git = false;
       else if (flag === "--no-install") args.install = false;
+      else if (flag === "--spa") args.spa = true;
       continue;
     }
 
@@ -127,12 +134,29 @@ export function parseArgs(argv: string[]): ParseResult {
     };
   }
   if (positionals.length === 1) {
-    const err = validateName(positionals[0]!);
-    if (err) return { ok: false, error: err };
-    args.name = positionals[0]!;
+    if (positionals[0] === ".") {
+      args.adopt = true;
+    } else {
+      const err = validateName(positionals[0]!);
+      if (err) return { ok: false, error: err };
+      args.name = positionals[0]!;
+    }
   }
 
-  if (args.yes) {
+  if (args.spa && !args.adopt) {
+    return {
+      ok: false,
+      error: `--spa applies to adopting an existing project: bun create shibumi .`,
+    };
+  }
+  if (args.adopt && args.template) {
+    return {
+      ok: false,
+      error: `--template does not apply to an existing project; bun create shibumi . adds deploy tooling to what is already here.`,
+    };
+  }
+
+  if (args.yes && !args.adopt) {
     if (!args.name) {
       return { ok: false, error: `--yes requires a project name.` };
     }
@@ -148,6 +172,7 @@ export const HELP_TEXT = `create-shibumi: scaffold a Shibumi Stack project
 
 Usage
   bun create shibumi@latest [name] [flags]
+  bun create shibumi@latest .           add deploy tooling to this project
   bunx create-shibumi [name] [flags]
 
 Flags
@@ -155,6 +180,7 @@ Flags
   --yes, -y             non-interactive; requires name and --template
   --no-git              skip git init
   --no-install          skip dependency install
+  --spa                 adopting only: unknown paths serve index.html
   --help, -h            show this help
   --version             show version
 

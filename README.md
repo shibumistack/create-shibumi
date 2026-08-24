@@ -8,6 +8,12 @@ cd my-app
 bun dev
 ```
 
+Already have a project? Run it inside that project instead, and it gets deploy tooling rather than a scaffold:
+
+```sh
+bun create shibumi@latest .
+```
+
 ## Three starting points
 
 1. **Bun full-stack app**: Hono, HTML, CSS, Alpine, Zod, tests, a health endpoint, and SQLite through Drizzle with migrations, persistent data, backup, and restore.
@@ -23,11 +29,16 @@ All three deploy to a Linux VPS or homelab through [shibumi-server](https://serv
 --yes, -y             non-interactive; requires name and --template
 --no-git              skip git init
 --no-install          skip dependency install
+--spa                 adopting only: unknown paths serve index.html
 --help, -h            show help
 --version             show version
 ```
 
 Creation is atomic: the project is built in a temporary sibling directory and renamed into place. Failure or cancellation leaves nothing behind, and an existing destination is never touched. Git init stages and commits nothing; the first commit belongs to you.
+
+## Adopting an existing project
+
+`bun create shibumi .` detects where your build lands (Astro and Vite write `dist/`, Eleventy `_site/`, an exported Next.js `out/`, plain files `public/`), vendors `scripts/ship.ts`, adds the `ship` scripts, and generates a `Dockerfile`, `compose.yaml`, and `.dockerignore` for the static image. Files that already exist are left alone, git is not touched, and nothing is installed. Finish with `bun ship:setup`.
 
 ## Guidance for coding agents
 

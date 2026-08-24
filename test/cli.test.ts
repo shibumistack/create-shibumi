@@ -63,9 +63,15 @@ describe("cli", () => {
   });
 
   it("rejects the dropped static-answer flags with exit 2", () => {
+    const r = runCli(["my-app", "--yes", "--template", "static", "--output-dir", "dist"]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("Unknown flag: --output-dir");
+  });
+
+  it("keeps --spa attached to adopting an existing project", () => {
     const r = runCli(["my-app", "--yes", "--template", "static", "--spa"]);
     expect(r.code).toBe(2);
-    expect(r.stderr).toContain("Unknown flag: --spa");
+    expect(r.stderr).toContain("--spa applies to adopting an existing project");
   });
 
   it("refuses interactive mode without a TTY with exit 2", () => {
