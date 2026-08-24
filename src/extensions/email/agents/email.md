@@ -15,7 +15,7 @@ Installed by `bun run shibumi add email`. This project owns every file below.
 
 Validated in `src/env.ts`, all optional at boot and checked at use:
 
-- `RESEND_API_KEY`: required to send. Store it in the deployment environment, never in code or git.
+- `RESEND_API_KEY`: required to send. Set it on the server with `bun ship:env set RESEND_API_KEY=...` (never in code or git), then `bun ship`.
 - `EMAIL_FROM`: default sender, e.g. `App <app@yourdomain.com>`. The domain must be verified in Resend.
 - `RESEND_WEBHOOK_SECRET`: only for webhook verification (`whsec_...`).
 

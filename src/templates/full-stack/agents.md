@@ -42,6 +42,19 @@ bun run shibumi add <name>  # install an extension (auth, email); --dry-run prev
 
 `bun ship:setup` writes `shibumi-server.json` (committed) and stores SSH targets in `~/.config/shibumi/config.json` (never committed). `scripts/ship.ts` is owned vendored source; update with `bun ship:update`.
 
+## Secrets and runtime config
+
+Set production env vars (secrets, per-deploy config) on the server, never in git or the image:
+
+```sh
+bun ship:env set KEY=VALUE      # one or more
+bun ship:env import .env.production  # bulk from a local file
+bun ship:env list               # names only
+bun ship:env rm KEY
+```
+
+Values are stored per-app on the server and injected at deploy; run `bun ship` to apply. Non-secret tunables that belong in git live in `src/config/*.yaml` instead.
+
 ## Checks required before commit
 
 `bun test` and `bun run check` must pass. Schema changes require a matching committed migration. The image copies `dist/`, `dist/migrations/`, `public/`, and `package.json`; update the Dockerfile and `.dockerignore` together if runtime files move.

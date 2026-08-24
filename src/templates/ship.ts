@@ -13,7 +13,7 @@
 
 import { cancel, confirm, intro, isCancel, log, outro, select, spinner as animatedSpinner, text } from "@clack/prompts";
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { createConnection } from "node:net";
 import { dirname, join, resolve } from "node:path";
 
@@ -25,7 +25,7 @@ const SERVER_HOSTNAME = /^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const SERVER_CLI = "~/.local/bin/shibumi-server";
 const LATEST_SOURCE = "https://shibumistack.dev/ship/latest.ts";
-const CURRENT_SOURCE = "https://shibumistack.dev/ship/v43.ts";
+const CURRENT_SOURCE = "https://shibumistack.dev/ship/v44.ts";
 let sshControlDirectory: string | undefined;
 let sshControlTarget: string | undefined;
 
@@ -1941,7 +1941,80 @@ async function updateShipClient(): Promise<void> {
   outro("Ship client updated. Review and commit scripts/ship.ts.");
 }
 
+// Manage per-app environment variables on the server (secrets and per-deploy
+// config). Values travel over the existing SSH channel to `shis env`, which
+// persists them server-side and injects them at deploy. Not part of
+// parseShipArgs: `env` has its own positional grammar.
+//
+//   bun ship:env set KEY=VALUE [KEY=VALUE...]   set individual variables
+//   bun ship:env import [file]                  import a .env file (default .env.production)
+//   bun ship:env list                           list variable names (never values)
+//   bun ship:env rm KEY [KEY...]                remove variables
+async function runEnv(args: string[]): Promise<void> {
+  const [sub, ...rest] = args;
+  const config = await readConfig();
+  if (!config) throw new Error("Shibumi setup is missing.\n\nNext: run bun ship:setup.");
+  const base = ["env", "SHIBUMI_SKIP_UPDATE_CHECK=1", SERVER_CLI, "env"];
+  const applyNote = "Redeploy to apply: bun ship.";
+  try {
+    const target = await projectTarget(config);
+    if (sub === "list") {
+      const result = await ssh(target, [...base, "list", config.appId], { allowFailure: true });
+      if (result.exitCode !== 0) throw new Error(result.stderr.trim() || "could not list environment variables");
+      process.stdout.write(result.stdout.trim() ? `${result.stdout.trim()}\n` : "No variables set.\n");
+      return;
+    }
+    if (sub === "rm") {
+      if (rest.length === 0) throw new Error("usage: bun ship:env rm <KEY...>");
+      const result = await ssh(target, [...base, "rm", config.appId, ...rest], { allowFailure: true });
+      if (result.exitCode !== 0) throw new Error(result.stderr.trim() || "could not remove variables");
+      process.stdout.write(`${result.stdout.trim()}\n${applyNote}\n`);
+      return;
+    }
+    if (sub === "set" || sub === "import") {
+      let content: string;
+      if (sub === "import") {
+        const file = rest[0] ?? ".env.production";
+        content = await readFile(join(root, file), "utf8").catch(() => {
+          throw new Error(`Cannot read ${file}. Pass a path: bun ship:env import <file>.`);
+        });
+      } else {
+        if (rest.length === 0) throw new Error("usage: bun ship:env set KEY=VALUE [KEY=VALUE...]");
+        for (const pair of rest) {
+          if (!/^[A-Z_][A-Z0-9_]*=/.test(pair)) throw new Error(`not KEY=VALUE (KEY must be UPPER_SNAKE): ${pair}`);
+        }
+        content = `${rest.join("\n")}\n`;
+      }
+      // Stage in a 0600 temp file and pipe it over SSH stdin, so values never
+      // appear in the process list on either machine.
+      const dir = await mkdtemp(join(tmpdir(), "shibumi-env-"));
+      const tmp = join(dir, "env");
+      await writeFile(tmp, content, { mode: 0o600 });
+      try {
+        const result = await ssh(target, [...base, "set", config.appId], { inputFile: tmp, allowFailure: true });
+        if (result.exitCode !== 0) throw new Error(result.stderr.trim() || "could not set variables");
+        process.stdout.write(`${result.stdout.trim()}\n${applyNote}\n`);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+      return;
+    }
+    throw new Error("usage: bun ship:env set KEY=VALUE | import [file] | list | rm <KEY...>");
+  } finally {
+    await closeSshControl();
+  }
+}
+
 export function runShipCli(): void {
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs[0] === "--env") {
+    agentRun = isAgentExecution();
+    runEnv(rawArgs.slice(1)).catch((error) => {
+      cancel(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
+    return;
+  }
   try {
     options = parseShipArgs(process.argv.slice(2));
     agentRun = isAgentExecution();

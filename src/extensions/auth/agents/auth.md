@@ -36,7 +36,7 @@ app.use("/account/*", requireAuth);
 
 ## Environment
 
-- `APP_ORIGIN` (validated in `src/env.ts`): canonical origin for login links, e.g. `https://app.example.com`. Login-link building is fail-closed: only `NODE_ENV=development` falls back to the request origin; every other value (production, or unset) requires `APP_ORIGIN` and requires it to be `https`, so a poisoned Host header can never redirect tokens and tokens never ride plaintext. The generated Dockerfile sets `NODE_ENV=production`; keep it set in every deployment.
+- `APP_ORIGIN` (validated in `src/env.ts`): canonical origin for login links, e.g. `https://app.example.com`. Login-link building is fail-closed: only `NODE_ENV=development` falls back to the request origin; every other value (production, or unset) requires `APP_ORIGIN` and requires it to be `https`, so a poisoned Host header can never redirect tokens and tokens never ride plaintext. The generated Dockerfile sets `NODE_ENV=production`; keep it set in every deployment. Set the value on the server with `bun ship:env set APP_ORIGIN=https://app.example.com`, then `bun ship`.
 
 ## Reserved emails
 

@@ -18,7 +18,7 @@ Because access is granted by email, the auth extension **reserves** every `ADMIN
 - **Login link** (proves inbox control): request `/auth/login-link` for the admin email once the email extension is wired.
 - **Console seed** before exposing the app: `bun -e 'import { createUser } from "./src/lib/auth"; await createUser("you@example.com", process.env.SEED_PW!)'` with `SEED_PW` set in the environment.
 
-Set `ADMIN_EMAILS` before the app is publicly reachable.
+Set `ADMIN_EMAILS` before the app is publicly reachable: `bun ship:env set ADMIN_EMAILS=you@example.com`, then `bun ship`.
 
 ## Endpoints
 
