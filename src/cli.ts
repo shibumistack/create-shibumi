@@ -323,7 +323,7 @@ async function main(): Promise<void> {
         },
         {
           value: "blog" as TemplateId,
-          label: `Blog${detail("Astro: posts, RSS, sitemap, SEO meta, llms.txt")}`,
+          label: `Blog${detail("with RSS, sitemap, SEO")}`,
         },
         {
           value: "static" as TemplateId,
