@@ -108,7 +108,7 @@ export class AdoptError extends Error {
 function verifiedShipPath(templatesDir: string): string {
   const shipPath = join(templatesDir, "ship.ts");
   if (!existsSync(shipPath)) {
-    throw new AdoptError(`Vendored Ship client missing at ${shipPath}; aborting.`);
+    throw new AdoptError(`Packaged deploy script missing at ${shipPath}; aborting.`);
   }
   if (templatesDir === DEFAULT_TEMPLATES_DIR) {
     const lock = JSON.parse(
@@ -117,7 +117,7 @@ function verifiedShipPath(templatesDir: string): string {
     const digest = new Bun.CryptoHasher("sha256").update(readFileSync(shipPath)).digest("hex");
     if (digest !== lock.sha256) {
       throw new AdoptError(
-        `Vendored Ship client does not match its checksum lock; the package may be corrupt. Reinstall create-shibumi.`
+        `Packaged deploy script does not match its checksum lock; the package may be corrupt. Reinstall create-shibumi.`
       );
     }
   }

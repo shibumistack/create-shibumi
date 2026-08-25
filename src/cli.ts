@@ -44,7 +44,7 @@ async function printInstaller(): Promise<never> {
   const bytes = await Bun.file(installer).arrayBuffer();
   const digest = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
   if (digest !== lock.sha256) {
-    process.stderr.write("Vendored installer does not match its checksum lock; reinstall create-shibumi.\n");
+    process.stderr.write("Packaged installer does not match its checksum lock; reinstall create-shibumi.\n");
     process.exit(1);
   }
   process.stdout.write(readFileSync(installer, "utf8"));
@@ -374,7 +374,7 @@ async function main(): Promise<void> {
     if (args.install) log.success("Dependencies installed");
     else log.info("Install skipped; run bun install inside the project");
     if (existsSync(join(result.dest, "scripts", "ship.ts"))) {
-      log.success("Ship client vendored (scripts/ship.ts)");
+      log.success("Deploy script added (scripts/ship.ts)");
     }
   } catch (err) {
     if (err instanceof CreateError) {
