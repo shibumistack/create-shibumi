@@ -73,7 +73,7 @@ jobs:
           bun run shibumi add auth --dry-run --yes
           test ! -f src/db/schema-auth.ts
           bun run shibumi add auth --yes
-          test -f src/db/migrations/0002_auth.sql
+          test -f src/db/migrations/0003_auth.sql
           bun test
           bun run check
           # email extension cycle: add, prove, remove, prove clean
