@@ -50,6 +50,8 @@ beforeEach(() => {
   writeFileSync(join(project, "src", "schema.env.ts"), "export type Env = { API_TOKEN: string };\n");
   writeFileSync(join(project, "src", "config.env.json"), `{ "region": "eu" }\n`);
   git("init", "-q", "-b", "main", ".");
+  git("config", "user.email", "t@e.st");
+  git("config", "user.name", "Test");
   tools = fakeTools(work, { domain: DOMAIN, appId: APP_ID, repository: REPOSITORY });
 });
 

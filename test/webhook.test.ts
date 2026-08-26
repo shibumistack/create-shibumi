@@ -53,6 +53,8 @@ function setup(config: object, options: { hooks?: unknown[]; mode?: "build" | "p
   writeFileSync(join(project, "compose.yaml"), "services:\n  app:\n    build: .\n");
   writeFileSync(join(project, "shibumi-server.json"), `${JSON.stringify(config, null, 2)}\n`);
   git("init", "-q", "-b", "main", ".");
+  git("config", "user.email", "t@e.st");
+  git("config", "user.name", "Test");
   git("add", "-A");
   git("commit", "-q", "-m", "Add Shibumi deployment");
   tools = fakeTools(work, {
