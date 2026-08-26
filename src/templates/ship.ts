@@ -26,7 +26,7 @@ const SERVER_HOSTNAME = /^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const SERVER_CLI = "~/.local/bin/shibumi-server";
 const LATEST_SOURCE = "https://shibumistack.dev/ship/latest.ts";
-const CURRENT_SOURCE = "https://shibumistack.dev/ship/v48.ts";
+const CURRENT_SOURCE = "https://shibumistack.dev/ship/v49.ts";
 let sshControlDirectory: string | undefined;
 let sshControlTarget: string | undefined;
 
@@ -1809,7 +1809,7 @@ async function localBuildFrontend(config: ClientConfig): Promise<string[] | unde
   if (config.deploymentMode !== "prebuilt") return undefined;
   if (!config.platform) throw new Error("server image platform is missing.\n\nNext: run bun ship:setup.");
   const docker = await run(["docker", "info"], { allowFailure: true });
-  if (docker.exitCode !== 0) throw new Error("Docker CLI cannot reach a compatible engine.\n\nNext: start Colima with colima start, verify docker info, then run bun ship.");
+  if (docker.exitCode !== 0) throw new Error("Docker cannot reach your container engine.\n\nNext: start or restart it, then run docker info. When docker info shows Server details, run bun ship again.\n\nColima: colima restart\nPodman: podman machine restart\nDocker Desktop: open or restart Docker Desktop\n\nHelp: https://shibumistack.dev/docs/ship/troubleshooting#docker-engine");
   const plugin = await run(["docker", "compose", "version"], { allowFailure: true });
   const standalone = plugin.exitCode === 0
     ? undefined
