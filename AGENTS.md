@@ -8,14 +8,14 @@ This is the public source for the `create-shibumi` npm package, the Shibumi Stac
 bun install
 bun test        # CLI tests only (bunfig scopes test root to ./test)
 bun check       # tsc --noEmit
-bun ship:sync   # re-vendor Ship client from the locked immutable snapshot
+bun sync:ship   # re-vendor Ship client from the locked immutable snapshot
 ```
 
 ## Layout
 
 - `src/cli.ts`: entry, prompts, exit codes. `src/args.ts`: strict parser. `src/create.ts`: atomic scaffold. `src/adopt.ts`: `bun create shibumi .` on an existing project (vendor the client, add scripts, generate the static image files).
 - `src/templates/<id>/`: template assets copied verbatim into generated projects (template `test/` folders ship to projects; they are not this package's tests).
-- `src/templates/ship.ts`: vendored Ship client, byte-locked to `scripts/ship.lock.json`. Never edit by hand; update the lock and run `bun ship:sync`.
+- `src/templates/ship.ts`: vendored Ship client, byte-locked to `scripts/ship.lock.json`. Never edit by hand; update the lock and run `bun sync:ship`.
 - `src/extensions/`: auth and email extension assets; installer lands in a later workstream.
 - Template `.gitignore` files are stored as `gitignore` (npm pack strips dotted ones); `create.ts` renames them at scaffold time.
 

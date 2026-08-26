@@ -100,6 +100,7 @@ describe("embedded bundle freshness", () => {
       extensions: Array<{ name: string; version: string }>;
     };
     expect(createHash("sha256").update(committed).digest("hex")).toBe(lock.sha256);
+    expect(lock).not.toHaveProperty("version");
     expect(lock.extensions).toEqual(EXTENSIONS.map((ext) => ({ name: ext.name, version: ext.version })));
   });
 

@@ -10,7 +10,7 @@ First release shipped 2026-08-24: `create-shibumi@0.2.0`, tag `v0.2.0`, registry
 - `bun run verify:packed` green locally; record the printed tarball sha256.
 - `bun run verify:copy` green (site command/script tables match generated output). Run from the `shibumistack.dev` checkout.
 - Latest adversarial security review of the packed artifact + one fixture per path + each extension has no HIGH finding. Two independent passes have been run per diff (codex gpt-5.6-sol, kimi k3); run one more on the exact release tarball if any code changed since.
-- Vendored clients current: `scripts/ship.lock.json` and `scripts/shibumi.lock.json` match the live immutable URLs; `bun run ship:sync` and `bun run sync:extensions` produce no diff.
+- Vendored clients current: `scripts/ship.lock.json` and `scripts/shibumi.lock.json` match the live immutable URLs; `bun run sync:ship`, `bun run sync:extensions`, and `bun run sync:css` produce no diff.
 
 ## Publish steps
 

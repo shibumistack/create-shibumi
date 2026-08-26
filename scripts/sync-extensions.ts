@@ -143,12 +143,10 @@ if (import.meta.main) {
   const updated = injectBundles(readFileSync(TARGET, "utf8"), bundles);
   writeFileSync(TARGET, updated);
   const sha256 = createHash("sha256").update(updated).digest("hex");
-  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version: string };
   writeFileSync(
     LOCK_PATH,
     `${JSON.stringify(
       {
-        version: pkg.version,
         extensions: bundles.map((bundle) => {
           const b = bundle as { name: string; version: string };
           return { name: b.name, version: b.version };

@@ -52,7 +52,7 @@ Generated projects include a root `agents.md`. It records route locations, data 
 bun install
 bun test        # CLI tests (parsing, atomicity, signals, E2E)
 bun check       # TypeScript
-bun ship:sync   # re-vendor the Ship client from its locked immutable snapshot
+bun sync:ship   # re-vendor the Ship client from its locked immutable snapshot
 ```
 
 The vendored Ship client in `src/templates/ship.ts` is locked byte-for-byte to a published immutable snapshot via `scripts/ship.lock.json`; tests fail on any drift.
