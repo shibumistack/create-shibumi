@@ -4,7 +4,7 @@
   "description": "Scaffold a Shibumi Stack project: Bun, Hono, Zod, Drizzle, SQLite, Alpine",
   "type": "module",
   "bin": {
-    "create-shibumi": "./src/cli.ts"
+    "create-shibumi": "src/cli.ts"
   },
   "files": [
     "src/cli.ts",
@@ -46,7 +46,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/shibumistack/create-shibumi"
+    "url": "git+https://github.com/shibumistack/create-shibumi.git"
   },
   "homepage": "https://shibumistack.dev",
   "dependencies": {
