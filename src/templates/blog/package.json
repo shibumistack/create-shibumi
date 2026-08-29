@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "check": "astro check",
-    "preview": "astro preview",
+    "dev": "bun --hot serve.ts",
+    "start": "bun serve.ts",
+    "build": "bun scripts/build.ts",
+    "preview": "bun scripts/preview.ts",
+    "check": "tsc --noEmit",
     "ship": "bun scripts/ship.ts",
     "ship:setup": "bun scripts/ship.ts --setup --static --output-dir dist --build-script build --no-spa",
     "ship:update": "bun scripts/ship.ts --update",
@@ -16,13 +17,11 @@
     "ship:webhook": "bun scripts/ship.ts --webhook"
   },
   "dependencies": {
-    "@astrojs/rss": "4.0.19",
-    "@astrojs/sitemap": "3.7.3",
-    "astro": "7.2.4"
+    "hono": "4.13.3"
   },
   "devDependencies": {
-    "@astrojs/check": "0.9.10",
     "@clack/prompts": "1.7.0",
+    "@types/bun": "1.4.0",
     "typescript": "5.9.2"
   },
   "engines": {

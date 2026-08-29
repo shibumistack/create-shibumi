@@ -326,7 +326,7 @@ function main(): void {
         "dist/index.html",
         "dist/404.html",
         "dist/rss.xml",
-        "dist/sitemap-index.xml",
+        "dist/sitemap.xml",
         "dist/llms.txt",
         "dist/robots.txt",
         "dist/og-default.png",

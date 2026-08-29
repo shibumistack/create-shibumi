@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "fs";
 import { dirname, join } from "path";
+import packageJson from "../package.json";
 import { validateName, type TemplateId } from "./args";
 
 export interface CreateOptions {
@@ -138,6 +139,14 @@ export async function createProject(
     onStep("copy");
     // tmp was created exclusively by mkdtemp above and is empty.
     cpSync(templateSrc, tmp, { recursive: true });
+
+    // The blog template's generator meta records which create-shibumi
+    // release scaffolded the project. Templates are static files, so the
+    // version is substituted here rather than evaluated at render time.
+    const generatorLayout = join(tmp, "src", "layout.html");
+    if (existsSync(generatorLayout)) {
+      writeFileSync(generatorLayout, readFileSync(generatorLayout, "utf8").replaceAll("{{generator-version}}", packageJson.version));
+    }
 
     // npm pack always strips .gitignore files, so templates store the file
     // as "gitignore" and it is renamed into place here.

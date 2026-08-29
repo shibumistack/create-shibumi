@@ -17,7 +17,7 @@ bun create shibumi@latest .
 ## Three starting points
 
 1. **Bun full-stack app**: Hono, HTML, CSS, Alpine, Zod, tests, a health endpoint, and SQLite through Drizzle with migrations, persistent data, backup, and restore.
-2. **Blog**: Astro with posts, RSS, sitemap, SEO meta, and llms.txt.
+2. **Blog**: the shibumistack.dev engine — a Bun + Hono markdown renderer with posts, RSS, sitemap, SEO meta, and llms.txt.
 3. **Static site**: publish a verified build directory such as `./dist`, `public`, `build`, or `out` from any framework.
 
 All three deploy to a Linux VPS or homelab through [shibumi-server](https://server.shibumistack.dev). Other providers can wait until their generated projects pass the same artifact and deployment tests.

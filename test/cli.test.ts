@@ -150,13 +150,12 @@ describe("cli", () => {
     const dest = join(work, "blog-app");
     for (const file of [
       "agents.md",
-      "astro.config.mjs",
+      "serve.ts",
+      "scripts/build.ts",
       "scripts/ship.ts",
-      "src/content.config.ts",
-      "src/pages/rss.xml.ts",
-      "src/pages/llms.txt.ts",
-      "src/pages/robots.txt.ts",
-      "src/pages/posts/[id].md.ts",
+      "src/app.ts",
+      "src/layout.html",
+      "src/pages/index.html",
       "src/content/blog/own-your-source.md",
       "public/og-default.png",
       ".gitignore",
