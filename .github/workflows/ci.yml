@@ -87,7 +87,7 @@ jobs:
           bun run build
           docker build -t fixture-data .
           docker volume create fsvol
-          docker run -d --rm --name fs1 -v fsvol:/data -p 127.0.0.1:39133:3000 -e APP_ORIGIN=https://ci.example fixture-data
+          docker run -d --rm --name fs1 -v fsvol:/data -p 127.0.0.1:39133:9001 -e APP_ORIGIN=https://ci.example fixture-data
           sleep 3
           test "$(docker exec fs1 printenv NODE_ENV)" = "production"
           wget -q -T 5 -O - http://127.0.0.1:39133/api/notes | grep -q 'It persists.'
@@ -99,7 +99,7 @@ jobs:
           if docker logs fs1 2>&1 | grep -q 'Login link for'; then echo 'login-link token leaked to logs in production'; exit 1; fi
           docker exec fs1 bun -e 'import { Database } from "bun:sqlite"; new Database("/data/app.db").query("INSERT INTO notes (title) VALUES (?)").run("survives");'
           docker rm -f fs1
-          docker run -d --rm --name fs2 -v fsvol:/data -p 127.0.0.1:39133:3000 -e APP_ORIGIN=https://ci.example fixture-data
+          docker run -d --rm --name fs2 -v fsvol:/data -p 127.0.0.1:39133:9001 -e APP_ORIGIN=https://ci.example fixture-data
           sleep 3
           wget -q -T 5 -O - http://127.0.0.1:39133/api/notes | grep -q 'survives'
           # the registered user persists across container replacement too
@@ -114,7 +114,7 @@ jobs:
           test -f dist/index.html
           test -f dist/404.html
           test -f dist/rss.xml
-          test -f dist/sitemap-index.xml
+          test -f dist/sitemap.xml
           test -f dist/llms.txt
           test -f dist/robots.txt
           test -f dist/og-default.png
