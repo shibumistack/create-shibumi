@@ -2,14 +2,17 @@ services:
   app:
     build: .
     ports:
-      - "127.0.0.1:${SHIBUMI_PORT:-9001}:3000"
+      - "127.0.0.1:${SHIBUMI_PORT:-9001}:9001"
     environment:
+      # Container and host both listen above 9000; SHIBUMI_PORT is the host
+      # port and 9001 is the app's own default (see src/env.ts).
+      PORT: "9001"
       DB_PATH: /data/app.db
     volumes:
       - app_data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://127.0.0.1:3000/healthz"]
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://127.0.0.1:9001/healthz"]
       interval: 60s
       timeout: 10s
       retries: 3

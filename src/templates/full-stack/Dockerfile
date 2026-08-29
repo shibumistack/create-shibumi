@@ -19,5 +19,5 @@ USER bun
 # refusing to build login links from the Host header. Never unset it here.
 ENV NODE_ENV=production
 ENV DB_PATH=/data/app.db
-EXPOSE 3000
+EXPOSE 9001
 CMD ["bun", "dist/server.js"]

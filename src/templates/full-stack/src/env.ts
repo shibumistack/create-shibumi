@@ -3,7 +3,7 @@ import { z } from "zod";
 // Validate the environment at the boundary; the app never reads process.env
 // directly. Add new variables here so misconfiguration fails at startup.
 const schema = z.object({
-  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  PORT: z.coerce.number().int().min(1).max(65535).default(9001),
   // Container deployments mount a persistent volume at /data and set
   // DB_PATH=/data/app.db (see compose.yaml). Local development stays in ./data.
   DB_PATH: z.string().min(1).default("data/app.db"),

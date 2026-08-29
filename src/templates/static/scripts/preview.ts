@@ -11,7 +11,7 @@ function withHeaders(res: Response): Response {
   return res;
 }
 const server = Bun.serve({
-  port: Number(process.env.PORT) || 4173,
+  port: Number(process.env.PORT) || 9001,
   async fetch(request) {
     if (request.method !== "GET" && request.method !== "HEAD") return withHeaders(new Response("Not found", { status: 404 }));
     let pathname;
