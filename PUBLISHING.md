@@ -36,6 +36,18 @@ First release shipped 2026-08-24: `create-shibumi@0.2.0`, tag `v0.2.0`, registry
 - A published version is immutable; a mistake means a new patch, not a re-publish. `npm unpublish` is not a recovery path.
 - Watch the first real installs; keep the prerelease dist-tag pointer until `latest` is confirmed healthy.
 
+## Ship client releases (changing scripts/ship.ts)
+
+The Ship client is a separate, versioned artifact from create-shibumi itself. Releasing vN+1 touches every repo in the org; do it in this order:
+
+1. **Publish on shibumistack.dev**: add `public/ship/vN+1.ts`, point `/ship/latest.ts` at it in `src/app.ts`, cut a new `install-vM.ts` (source URL + append the new sha256 to `knownSourceHashes`), point `/install/ship` at it, update `ship.md` source URL and `scripts/build.ts`, and fix `test/app.test.ts` to the new version.
+2. **Deploy the site** so `latest.ts` actually serves vN+1 (owner-gated).
+3. **Sync the vendored copies, lock-first**: create-shibumi (`scripts/ship.lock.json` → `bun run sync:ship`), shibumi-forms and shibumi-server (same lock + sync + drift test pattern), and shibumistack.dev's own `scripts/ship.ts`.
+4. **Prune** per the retention policy (current + previous two CLI versions, current installer, current bootstrap): delete older `v*.ts`, `install-*.ts`, `bootstrap-*.sh`, and update the site's version-boundary test, which encodes the policy.
+5. CI in each repo then guards drift: any hand-edit without a re-lock fails the build.
+
+Old clients pinned to a pruned version lose `ship:update` (their immutable `CURRENT_SOURCE` 404s) but still ship; the current installer's embedded `knownSourceHashes` keeps upgrades working from every reviewed version.
+
 ## Deploy-side items still owner-gated (not blocking npm publish)
 
 - **VPS dogfood matrix.** Done on arm64 (2026-08-24, kunstfy.com on alpha): DNS, setup, `ship:env`, image upload, deploy, health, auth/uploads/admin live, rollback with env retention, remove and re-add. The dogfood caught and fixed the CSRF-behind-TLS-proxy bug before this release. Still open: an amd64 host for the same live leg (CI covers the amd64 container path).

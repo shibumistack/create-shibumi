@@ -19,6 +19,19 @@ bun sync:ship   # re-vendor Ship client from the locked immutable snapshot
 - `src/extensions/`: auth and email extension assets; installer lands in a later workstream.
 - Template `.gitignore` files are stored as `gitignore` (npm pack strips dotted ones); `create.ts` renames them at scaffold time.
 
+## Upstream releases (shibumistack.dev)
+
+shibumistack.dev is the org's publishing point. When it publishes a new artifact, this repo owes a follow-up; the full flow is in `PUBLISHING.md` → "Ship client releases".
+
+| Published on shibumistack.dev | Follow-up here / in other repos |
+|---|---|
+| Ship client (`/ship/latest.ts` → new `vN.ts`) | Bump this repo's `scripts/ship.lock.json` to the new URL + sha256, run `bun run sync:ship`, review, commit. Same lock+sync step is then owed in shibumi-forms and shibumi-server, and shibumistack.dev's own `scripts/ship.ts` must match. |
+| `public/shibumi.css` (design tokens) | Forms and server re-run their css sync; never hand-edit vendored copies. |
+| create-shibumi CLI release (this repo) | bump `createShibumiVersion` in shibumistack.dev's `package.json` (generator meta on all pages reads it). |
+| shibumi-server release | bump `shibumiServerVersion` in shibumistack.dev's `package.json`. |
+
+This package's own release steps keep their home in `PUBLISHING.md`; that file now also records the cross-repo Ship client release flow.
+
 ## Hard rules
 
 - Package stays `"private": true` until the release workstream adds publish guards. npm publish is manual, done by the owner only.
