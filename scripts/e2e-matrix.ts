@@ -4,9 +4,12 @@
 // source and deploys it in finally. No DNS, sudo, app removal or history resets.
 import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join, resolve, dirname, isAbsolute } from "node:path";
-import { tmpdir } from "node:os";
 import { TEMPLATES, type TemplateId } from "../src/args";
-import { appIdForDomain, assertOwnedConfig, assertOwnership, parseTarget } from "./e2e-target";
+import { appIdForDomain, assertFixtureRemote, commitRestoreIfChanged, assertOwnedConfig, assertOwnership, mustRetainLock, parseTarget } from "./e2e-target";
+import { E2EProcesses } from "./e2e-process";
+import { inheritedSshAdapter, startSshAdapter, type SshAdapter } from "./e2e-ssh";
+
+const processes = new E2EProcesses();
 
 const root = resolve(import.meta.dir, "..");
 const [targetPath, ...extra] = process.argv.slice(2);
@@ -21,8 +24,8 @@ if (await realpath(target.directory) !== target.directory || await realpath(app)
 const lock = join(target.directory, "matrix.lock");
 await mkdir(lock, { mode: 0o700 }); // Exclusive: never run two destructive fixture swaps together.
 const artifacts = await mkdtemp(join(target.directory, "matrix-"));
-const control = await mkdtemp(join(tmpdir(), "shibumi-matrix-ssh-"));
 const results: { template: TemplateId; round: number; passed: boolean; commit?: string; steps: string[] }[] = [];
+let adapter: SshAdapter | undefined;
 let snapshot: string | undefined;
 let owner = "";
 let session: string | undefined;
@@ -34,20 +37,18 @@ const startedAt = new Date().toISOString();
 
 function check(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
 async function run(args: string[], cwd = app, input?: string, expectFailure = false): Promise<string> {
-  const child = Bun.spawn(args, {
+  const [code, out, err] = await processes.run(args, {
     cwd, stdin: input === undefined ? "ignore" : new TextEncoder().encode(input), stdout: "pipe", stderr: "pipe",
-    env: { ...process.env, SHIBUMI_E2E: "1", SHIBUMI_SKIP_UPDATE_CHECK: "1", SHIBUMI_SHIP_LATEST: "1", NO_COLOR: "1" },
+    env: { ...process.env, ...(adapter?.env ?? {}), SHIBUMI_E2E: "1", SHIBUMI_SKIP_UPDATE_CHECK: "1", SHIBUMI_SHIP_LATEST: "1", NO_COLOR: "1" },
   });
-  const timer = setTimeout(() => child.kill("SIGKILL"), 15 * 60_000);
-  try {
-    const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    await writeFile(log, `$ ${args.join(" ")}\n${out}${err}\n`, { flag: "a", mode: 0o600 });
-    if (expectFailure ? code === 0 : code !== 0) throw new Error(`${args[0]} exited ${code}; see ${log}`);
-    return out;
-  } finally { clearTimeout(timer); }
+  await writeFile(log, `$ ${args.join(" ")}\n${out}${err}\n`, { flag: "a", mode: 0o600 });
+  if (expectFailure ? code === 0 : code !== 0) throw new Error(`${args[0]} exited ${code}; see ${log}`);
+  return out;
 }
 async function ssh(args: string[]) {
-  return run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=auto", "-o", "ControlPersist=600", "-o", "ServerAliveInterval=15", "-S", join(control, "socket"), "--", target.server, "env", "SHIBUMI_SKIP_UPDATE_CHECK=1", "shis", ...args]);
+  // The run adapter replaces this private control socket and its control
+  // options with the shared master; unrelated hosts keep their own argv.
+  return run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=auto", "-o", "ControlPersist=600", "-o", "ServerAliveInterval=15", "-S", join(adapter!.dir, "socket"), "--", target.server, "env", "SHIBUMI_SKIP_UPDATE_CHECK=1", "shis", ...args]);
 }
 async function browser(args: string[], input?: string) {
   return run(["bunx", "--bun", "agent-browser@0.41.2", "--session", session!, ...args], app, input);
@@ -59,6 +60,7 @@ async function commit(message: string) {
   return (await run(["git", "rev-parse", "HEAD"])).trim();
 }
 async function ship(expectFailure = false) {
+  await assertFixtureRemote(target, run);
   await run(["bun", "run", "ship", "--", "--yes", "--server", target.server], app, undefined, expectFailure);
   const commit = (await run(["git", "rev-parse", "HEAD"])).trim();
   const status = JSON.parse(await ssh(["status", appId, "--commit", commit, "--json"]));
@@ -68,6 +70,7 @@ async function ship(expectFailure = false) {
 }
 async function setupSite(template: "blog" | "static") {
   const command = ["bun", "run", "ship:setup", "--", "--yes", "--server", target.server, "--domain", target.domain];
+  await assertFixtureRemote(target, run);
   await run(command);
   if (!(await Bun.file(join(app, "shibumi-server.json")).exists())) {
     // Ship deliberately pauses agent runs for review of newly generated files.
@@ -77,7 +80,9 @@ async function setupSite(template: "blog" | "static") {
     check(compose.includes(`dev.shibumistack.static.output: "${template === "blog" ? "dist" : "public"}"`) && compose.includes("  app:"), "Generated Compose does not match the requested static output/service");
     check((await readFile(join(app, "Dockerfile"), "utf8")).includes("FROM scratch"), "Expected the generated non-SPA static image");
     await commit(`test: review generated ${template} deployment files`);
+    await assertFixtureRemote(target, run);
     await run(["git", "push", "origin", "main"]);
+    await assertFixtureRemote(target, run);
     await run(command);
   }
   assertOwnedConfig(JSON.parse(await readFile(join(app, "shibumi-server.json"), "utf8")), target);
@@ -222,12 +227,12 @@ async function checkSite(template: "blog" | "static", value: string, screenshot:
 }
 
 try {
+  adapter = await inheritedSshAdapter(target.server) ?? await startSshAdapter(target.server);
   owner = (await readFile(join(app, "public/e2e-owner.txt"), "utf8")).trim();
   check(/^[0-9a-f-]{36}$/.test(owner), "Missing fixture ownership marker");
   await clean();
   check((await run(["git", "branch", "--show-current"])).trim() === "main", "Fixture must be on main");
-  const remote = (await run(["git", "remote", "get-url", "origin"])).trim();
-  check([`git@github.com:${target.repository}.git`, `https://github.com/${target.repository}.git`].includes(remote), "Fixture repository does not match target");
+  await assertFixtureRemote(target, run);
   const config = JSON.parse(await ssh(["client-config", appId]));
   assertOwnedConfig(config, target);
   check(config.healthPath === "/healthz" && config.deploymentMode === "prebuilt", "Matrix requires the full-stack prebuilt test registration");
@@ -289,8 +294,10 @@ try {
           await writeFile(join(app, "public/healthz"), "ok\n");
           await release(template, "b");
           await commit(`test: repair ${template} ${round} failure probe`);
+          await assertFixtureRemote(target, run);
           await run(["git", "push", "origin", "main"]);
         }
+        await assertFixtureRemote(target, run);
         await run(["bun", "run", "ship", "--", "--rollback", "--yes", "--server", target.server]);
         const status = JSON.parse(await ssh(["status", appId, "--json"]));
         check(status.commit === commitA && status.state === "succeeded", "Rollback commit mismatch");
@@ -308,26 +315,35 @@ try {
         await evaluate(`(async () => { const r = await fetch('/', {cache:'no-store'}); return JSON.stringify({visibleRelease:document.body.innerText.match(/E2E release [ABC]\\./)?.[0], headers:Object.fromEntries(r.headers), serverRelease:(await r.text()).match(/E2E release [ABC]\\./)?.[0]}); })()`).catch(() => {});
         throw error;
       } finally {
+        if (processes.cancelled) processes.cleanup();
         await browser(["close"]).catch(() => {});
         session = undefined;
+        if (processes.cancelled) processes.resumeWork();
       }
     }
     result.commit = JSON.parse(await ssh(["status", appId, "--json"])).commit;
+    processes.check();
     result.passed = true;
     await writeFile(join(artifacts, `${template}-${round}-history.json`), await ssh(["history", appId, "--json"]), { mode: 0o600 });
     console.log(`✓ ${template} ${round}/2`);
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
+  process.exitCode = processes.cancelled ? processes.exitCode : 1;
 } finally {
+  processes.cleanup();
+  if (session) { await browser(["close"]).catch(() => {}); session = undefined; }
   log = join(artifacts, "restore.log");
-  if (snapshot && startedReplacing) {
+  if (processes.unsafe) {
+    console.error("A subprocess needed forced termination; fixture recovery must be checked manually.");
+    process.exitCode = 1;
+  }
+  if (!processes.unsafe && snapshot && startedReplacing) {
     try {
       await clearFixture(true);
       await run(["tar", "-xf", join(artifacts, "original.tar"), "-C", app]);
       await run(["bun", "install", "--frozen-lockfile"]);
-      await commit("test: restore original full-stack fixture after template matrix");
+      await commitRestoreIfChanged(run, () => commit("test: restore original full-stack fixture after template matrix"));
       await ship();
       const count = (await (await get("/api/counter")).json() as { count: number }).count;
       check(process.exitCode ? count >= initialCount : count === initialCount + results.filter(r => r.template === "full-stack" && r.passed).length, "Full-stack counter data did not survive template replacement");
@@ -338,9 +354,16 @@ try {
       process.exitCode = 1;
     }
   }
-  await writeFile(join(artifacts, "results.json"), JSON.stringify({ startedAt, finishedAt: new Date().toISOString(), bun: Bun.version, templates: [...TEMPLATES], results, restored, passed: !process.exitCode && results.length === TEMPLATES.length * 2 && results.every(r => r.passed) }, null, 2) + "\n", { mode: 0o600 });
-  await run(["ssh", "-S", join(control, "socket"), "-O", "exit", "--", target.server]).catch(() => {});
-  await rm(control, { recursive: true, force: true });
-  await rm(lock, { recursive: true, force: true });
+  const retainLock = mustRetainLock({ startedReplacing, restored, unsafe: processes.unsafe });
+  await writeFile(join(artifacts, "results.json"), JSON.stringify({ startedAt, finishedAt: new Date().toISOString(), bun: Bun.version, templates: [...TEMPLATES], results, restored, lockRetained: retainLock, passed: !process.exitCode && results.length === TEMPLATES.length * 2 && results.every(r => r.passed) }, null, 2) + "\n", { mode: 0o600 });
+  // The shared transport outlives every child. Keep it and the lock until the
+  // original fixture is verifiably back, so a manual recovery can reuse it.
+  if (retainLock) {
+    console.error(`Fixture recovery is unverified; retaining ${lock} and the SSH transport for manual recovery.`);
+    process.exitCode = 1;
+  } else {
+    if (adapter?.owner) await adapter.close();
+    await rm(lock, { recursive: true, force: true });
+  }
   console.log(`Matrix results: ${join(artifacts, "results.json")}`);
 }

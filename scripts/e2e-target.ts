@@ -24,8 +24,36 @@ export function parseTarget(value: unknown, checkout: string): E2ETarget {
   return t as unknown as E2ETarget;
 }
 
+export async function assertFixtureRemote(target: E2ETarget, run: (args: string[]) => Promise<string>): Promise<void> {
+  const allowed = new Set([`git@github.com:${target.repository}.git`, `https://github.com/${target.repository}.git`]);
+  for (const flags of [["--all"], ["--push", "--all"]]) {
+    const urls = (await run(["git", "remote", "get-url", ...flags, "origin"])).trim().split("\n");
+    if (!urls.length || urls.some(url => !allowed.has(url))) {
+      throw new Error(`Fixture origin ${flags.includes("--push") ? "push" : "fetch"} URLs do not match the dedicated test repository`);
+    }
+  }
+}
+
+export async function commitRestoreIfChanged(run: (args: string[]) => Promise<string>, commit: () => Promise<unknown>): Promise<void> {
+  // The first replacement may fail before it produces a commit.
+  if ((await run(["git", "status", "--porcelain"])).trim()) await commit();
+}
+
 export function appIdForDomain(domain: string): string {
   return domain.replaceAll("-", "--").replaceAll(".", "-");
+}
+
+export interface MatrixRecoveryState {
+  startedReplacing: boolean;
+  restored: boolean;
+  unsafe: boolean;
+}
+
+export function mustRetainLock({ startedReplacing, restored, unsafe }: MatrixRecoveryState): boolean {
+  // Forced termination is never a clean pass. Once replacement began, the lock
+  // also survives a failed or unverified restoration so no run can start on a
+  // fixture whose original source is uncertain.
+  return unsafe || (startedReplacing && !restored);
 }
 
 export function assertOwnership(status: number | undefined, body: string, owner: string, previouslyDeployed: boolean): void {

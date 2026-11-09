@@ -8,7 +8,11 @@
 import { mkdir, mkdtemp, readFile, writeFile, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, isAbsolute, dirname } from "node:path";
-import { parseTarget, assertOwnedConfig, assertOwnership, appIdForDomain } from "./e2e-target";
+import { parseTarget, assertFixtureRemote, assertOwnedConfig, assertOwnership, appIdForDomain } from "./e2e-target";
+import { E2EProcesses } from "./e2e-process";
+import { inheritedSshAdapter, startSshAdapter, type SshAdapter } from "./e2e-ssh";
+
+const processes = new E2EProcesses();
 
 const root = resolve(import.meta.dir, "..");
 const [mode, targetPath, ...extra] = process.argv.slice(2);
@@ -24,24 +28,20 @@ const report = join(target.directory, `${mode}-results.json`);
 const steps: { step: string; seconds: number; ok: boolean }[] = [];
 let currentStep = "preflight";
 let session: string | undefined;
-let sshControl: string | undefined;
+let adapter: SshAdapter | undefined;
 let localServer: ReturnType<typeof Bun.spawn> | undefined;
 let localData: string | undefined;
 
 async function run(args: string[], cwd = app, input?: string, allowFailure = false): Promise<string> {
-  const child = Bun.spawn(args, {
+  const [code, out, err] = await processes.run(args, {
     cwd, stdin: input === undefined ? "ignore" : new TextEncoder().encode(input),
     stdout: "pipe", stderr: "pipe",
-    env: { ...process.env, SHIBUMI_SKIP_UPDATE_CHECK: "1", SHIBUMI_SHIP_LATEST: "1", NO_COLOR: "1" },
+    env: { ...process.env, ...(adapter?.env ?? {}), SHIBUMI_SKIP_UPDATE_CHECK: "1", SHIBUMI_SHIP_LATEST: "1", NO_COLOR: "1" },
   });
-  const timer = setTimeout(() => child.kill("SIGKILL"), 15 * 60_000);
-  try {
-    const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    // Never log stdin: it can carry test credentials or environment values.
-    if (code !== 0 && !allowFailure) throw new Error(`${args[0]} exited ${code}\n${out}\n${err}`);
-    if (allowFailure && code === 0) throw new Error("Deliberately unhealthy deployment unexpectedly succeeded");
-    return out;
-  } finally { clearTimeout(timer); }
+  // Never log stdin: it can carry test credentials or environment values.
+  if (code !== 0 && !allowFailure) throw new Error(`${args[0]} exited ${code}\n${out}\n${err}`);
+  if (allowFailure && code === 0) throw new Error("Deliberately unhealthy deployment unexpectedly succeeded");
+  return out;
 }
 async function step(name: string, fn: () => Promise<void>) {
   currentStep = name;
@@ -49,6 +49,7 @@ async function step(name: string, fn: () => Promise<void>) {
   const start = performance.now();
   try {
     await fn();
+    processes.check();
     steps.push({ step: name, seconds: Math.round((performance.now() - start) / 1000), ok: true });
   } catch (error) {
     steps.push({ step: name, seconds: Math.round((performance.now() - start) / 1000), ok: false });
@@ -58,8 +59,9 @@ async function step(name: string, fn: () => Promise<void>) {
 function check(ok: unknown, message: string): asserts ok { if (!ok) throw new Error(message); }
 async function ssh(args: string[], input?: string) {
   // Target grammar forbids shell syntax; every remote argument below is fixed
-  // or constrained to domain/repository/SHA grammars before reaching SSH.
-  return run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=auto", "-o", "ControlPersist=600", "-o", "ServerAliveInterval=15", "-S", join(sshControl!, "socket"), "--", target.server, "env", "SHIBUMI_SKIP_UPDATE_CHECK=1", "shis", ...args], app, input);
+  // or constrained to domain/repository/SHA grammars before reaching SSH. The
+  // run adapter rewrites this private control socket onto the shared master.
+  return run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=auto", "-o", "ControlPersist=600", "-o", "ServerAliveInterval=15", "-S", join(adapter!.dir, "socket"), "--", target.server, "env", "SHIBUMI_SKIP_UPDATE_CHECK=1", "shis", ...args], app, input);
 }
 async function browser(args: string[], input?: string) {
   return run(["bunx", "--bun", "agent-browser@0.41.2", "--session", session!, ...args], app, input);
@@ -81,6 +83,7 @@ async function commit(message: string) {
   await run(["git", "-c", "commit.gpgsign=false", "commit", "-m", message]);
 }
 async function ship(expectFailure = false) {
+  await assertFixtureRemote(target, run);
   await run(["bun", "run", "ship", "--", "--yes", "--server", target.server], app, undefined, expectFailure);
   if (!expectFailure) await deployed((await run(["git", "rev-parse", "HEAD"])).trim());
 }
@@ -189,7 +192,7 @@ try {
       const port = probe.port!;
       probe.stop(true);
       const base = `http://localhost:${port}`;
-      const serve = () => Bun.spawn(["bun", "dist/server.js"], {
+      const serve = () => processes.spawn(["bun", "dist/server.js"], {
         cwd: app, stdout: "ignore", stderr: "inherit",
         env: { ...process.env, NODE_ENV: "production", PORT: String(port), DB_PATH: join(data, "app.db"), APP_ORIGIN: base },
       });
@@ -200,14 +203,13 @@ try {
       });
       await step("preserve sessions, database and files across restart", async () => {
         const count = await persistence(base, email);
-        localServer!.kill();
-        await localServer!.exited;
+        await processes.stop(localServer!);
         localServer = serve();
         await waitFor(`${base}/public/e2e-owner.txt`, owner);
         check(await persistence(base, email) === count, "Counter changed across server restart");
       });
     } else {
-      sshControl = await mkdtemp(join(tmpdir(), "shibumi-e2e-ssh-"));
+      adapter = await inheritedSshAdapter(target.server) ?? await startSshAdapter(target.server);
       await step("verify dedicated registration and ownership", async () => {
         assertOwnedConfig(JSON.parse(await ssh(["client-config", appId])), target);
         const history = JSON.parse(await ssh(["history", appId, "--json"]));
@@ -218,8 +220,10 @@ try {
         } catch { /* A new registration may not have a certificate/listener yet. */ }
         assertOwnership(response?.status, response ? await response.text() : "", owner, history.some(entry => entry.state === "succeeded"));
         check(!(await run(["git", "status", "--porcelain"])).trim(), "Fixture has uncommitted changes");
+        await assertFixtureRemote(target, run);
       });
       await step("setup through generated Ship client", async () => {
+        await assertFixtureRemote(target, run);
         await run(["bun", "run", "ship:setup", "--", "--yes", "--server", target.server, "--domain", target.domain]);
         const config = JSON.parse(await readFile(join(app, "shibumi-server.json"), "utf8"));
         assertOwnedConfig(config, target);
@@ -240,6 +244,7 @@ try {
       const count = await persistence(origin, email);
       await step("repeat setup without configuration drift", async () => {
         const before = await readFile(join(app, "shibumi-server.json"), "utf8");
+        await assertFixtureRemote(target, run);
         await run(["bun", "run", "ship:setup", "--", "--yes", "--server", target.server, "--domain", target.domain]);
         check(await readFile(join(app, "shibumi-server.json"), "utf8") === before, "Repeated setup changed configuration");
       });
@@ -267,38 +272,43 @@ try {
           await waitFor(`${origin}/public/e2e-version.txt`, "b");
           check(await persistence(origin, email) === count, "Data changed after failed deployment");
         } finally {
+          if (processes.cancelled) processes.cleanup();
           await writeFile(path, source);
           await commit("test: restore healthy source after failure probe");
+          await assertFixtureRemote(target, run);
           await run(["git", "push", "origin", "main"]);
+          if (processes.cancelled) processes.resumeWork();
         }
       });
       await step("rollback to A with persistent data", async () => {
+        await assertFixtureRemote(target, run);
         await run(["bun", "run", "ship", "--", "--rollback", "--yes", "--server", target.server]);
         await deployed(commitA);
         await waitFor(`${origin}/public/e2e-version.txt`, "a");
         check(await persistence(origin, email) === count, "Data changed across rollback");
       });
+      processes.check();
       console.log("Live journey passed. Test registration and private repo retained for inspection; no production apps touched.");
     }
   }
 } catch (error) {
   console.error(`FAILED: ${currentStep}\n${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
-  if (mode === "live" && await Bun.file(join(app, "shibumi-server.json")).exists()) {
+  process.exitCode = processes.cancelled ? processes.exitCode : 1;
+  processes.cleanup();
+  if (mode === "live" && !processes.cancelled && await Bun.file(join(app, "shibumi-server.json")).exists()) {
     for (const command of ["status", "history"]) {
       const output = await ssh([command, appId, "--json"]).catch(() => "Diagnostics unavailable\n");
       await writeFile(join(target.directory, `${command}-failure.json`), output, { mode: 0o600 });
     }
   }
 } finally {
-  if (sshControl) {
-    await run(["ssh", "-S", join(sshControl, "socket"), "-O", "exit", "--", target.server]).catch(() => {});
-    await rm(sshControl, { recursive: true, force: true });
-  }
-  if (localServer) { localServer.kill(); await localServer.exited; }
+  processes.cleanup();
+  // Only the owner closes the shared master, and only with the real ssh binary.
+  if (adapter?.owner) await adapter.close();
+  if (localServer) await processes.stop(localServer);
   if (localData) await rm(localData, { recursive: true, force: true });
   if (session) {
-    if (process.exitCode) await browser(["screenshot", join(target.directory, `${mode}-failure.png`)]).catch(() => {});
+    if (process.exitCode && !processes.cancelled) await browser(["screenshot", join(target.directory, `${mode}-failure.png`)]).catch(() => {});
     await browser(["close"]).catch(() => {});
   }
   if (await Bun.file(join(app, "public/e2e-owner.txt")).exists()) {

@@ -35,7 +35,7 @@ This package's own release steps keep their home in `PUBLISHING.md`; that file n
 
 ## Hard rules
 
-- Package stays `"private": true` until the release workstream adds publish guards. npm publish is manual, done by the owner only.
+- The package is public. Keep its explicit pack allowlist and CI guards; npm publishing is manual and owner-only.
 - No shell-string exec anywhere; `Bun.spawn` argument arrays only. CI greps for violations.
 - Atomic creation invariants: exclusive mkdtemp temp sibling, mkdir-reserved rename, destination absent on any failure/cancel/signal, existing paths never touched, git never stages or commits.
 - Exit codes: 0 success, 1 runtime failure, 2 usage error, 130 SIGINT, 143 SIGTERM.
@@ -43,9 +43,11 @@ This package's own release steps keep their home in `PUBLISHING.md`; that file n
 
 ## Gotchas
 
-- Runtime floor is Bun 1.4.4: keep `MINIMUM_BUN`, package/template engines and onboarding requirements aligned. The CLI checks before all paths, including `--print-installer`. Package check scripts must use `bun check --no-script` to avoid recursive script dispatch. No direct `typescript` dependency is needed; keep `@types/bun`.
+- Runtime floor is Bun 1.4.4: keep `MINIMUM_BUN`, package/template engines, the CI minimum-version job and onboarding requirements aligned. The CLI checks before all paths, including `--print-installer`. Package check scripts must use `bun check --no-script` to avoid recursive script dispatch. No direct `typescript` dependency is needed; keep `@types/bun`.
 
 - `bun run verify:packed` uses `bun pm pack` and runs without a source checkout dependency. Live tests are separate from normal `bun test`; `SHIBUMI_E2E=1 bun run test:e2e:matrix /absolute/target.json` actually replaces, commits, pushes and deploys the dedicated fixture.
+- Live fixture safety must validate every effective fetch and push URL (`git remote get-url --all origin` and `--push --all origin`), including Git rewrites, before setup, deployment, rollback and direct pushes. Checking only the fetch URL misses `pushurl` and `pushInsteadOf`.
+- E2E cancellation stops local process groups before fixture restoration. Forced termination retains `matrix.lock` for manual recovery. Restore may have no source diff if the first replacement failed before committing; skip that empty commit and still deploy/check persistence. Linux-only subprocess tests skip on other platforms.
 - Agent/non-interactive Ship setup can exit 0 after generating static container files without deploying. Review, commit and push the generated files, rerun setup, and verify the exact commit in server status. Register the generated Compose service (`app`), not the server CLI default (`web`).
 - Static HTML can be fresh in the browser's navigation cache after a deploy or rollback. Live checks use a normal reload, not a cache wipe, and independently check that version B's ETag revalidates to version A's changed HTML after rollback.
 - Blog canonicals have trailing slashes; Markdown alternates use `/posts/<slug>.md`. Set `src/site.ts` to the live origin before publishing, and use `draft: true` to exclude private posts.
