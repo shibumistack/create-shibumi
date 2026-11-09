@@ -7,6 +7,25 @@ import { commitRestoreIfChanged } from "../scripts/e2e-target";
 
 const linuxTest = process.platform === "linux" ? test : test.skip;
 
+async function waitForStopped(pid: number): Promise<boolean> {
+  // SIGKILL is asynchronous. A reaped or zombie process cannot keep working.
+  for (let i = 0; i < 50; i++) {
+    try {
+      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+      if (stat.split(") ")[1]?.startsWith("Z")) return true;
+    } catch (error) {
+      if (["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) return true;
+      throw error;
+    }
+    await Bun.sleep(20);
+  }
+  return false;
+}
+
+linuxTest("termination check rejects a still-running process", async () => {
+  expect(await waitForStopped(process.pid)).toBe(false);
+});
+
 linuxTest("Bun detached child and grandchild share a killable process group", async () => {
   const dir = await mkdtemp(join(tmpdir(), "e2e-group-"));
   const processes = new E2EProcesses();
@@ -28,14 +47,7 @@ linuxTest("Bun detached child and grandchild share a killable process group", as
     expect(await pgid(child.pid)).toBe(String(child.pid));
     expect(await pgid(pid)).toBe(String(child.pid));
     await processes.stop(child);
-    // A reaped or zombie grandchild cannot continue work or push.
-    let stopped = false;
-    for (let i = 0; i < 50; i++) {
-      const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => "");
-      if (!stat || stat.split(") ")[1]?.startsWith("Z")) { stopped = true; break; }
-      await Bun.sleep(20);
-    }
-    expect(stopped).toBe(true);
+    expect(await waitForStopped(pid)).toBe(true);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -63,8 +75,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) linuxTest(`${signal} stops 
     runner.kill(signal);
     expect(await runner.exited).toBe(signal === "SIGINT" ? 130 : 143);
     expect(await readFile(restored, "utf8")).toBe("restored");
-    const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => "");
-    expect(!stat || stat.split(") ")[1]?.startsWith("Z")).toBe(true);
+    expect(await waitForStopped(pid)).toBe(true);
   } finally { if (!runner.killed) runner.kill("SIGKILL"); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -77,8 +88,7 @@ linuxTest("timeout stops the whole subprocess group", async () => {
     await expect(processes.run(["bun", "-e", script], { stdout: "pipe", stderr: "pipe" }, 1500)).rejects.toThrow("timed out");
     const pid = Number(await readFile(pidFile, "utf8"));
     expect(pid).toBeGreaterThan(0);
-    const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => "");
-    expect(!stat || stat.split(") ")[1]?.startsWith("Z")).toBe(true);
+    expect(await waitForStopped(pid)).toBe(true);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
