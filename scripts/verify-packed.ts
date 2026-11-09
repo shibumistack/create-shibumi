@@ -3,7 +3,7 @@
 //
 //   bun scripts/verify-packed.ts [--keep]
 //
-// Steps: npm pack, record the tarball sha256, install the tarball into a
+// Steps: bun pm pack, record the tarball sha256, install the tarball into a
 // temp directory outside the repo, scaffold every template non-interactively
 // through the installed bin shim, assert no placeholders or repo paths leak
 // into generated projects (paths and contents, re-scanned after extension
@@ -144,11 +144,11 @@ function main(): void {
 
   const packDir = mkdtempSync(join(tmpdir(), "shibumi-pack-"));
   cleanupDirs.push(packDir);
-  const packResult = must("pack", ["npm", "pack", "--pack-destination", packDir], REPO);
-  const tarballName = packResult.stdout.trim().split("\n").at(-1) ?? "";
+  const tarballName = "create-shibumi.tgz";
   const tarball = join(packDir, tarballName);
-  if (!tarballName.endsWith(".tgz") || !existsSync(tarball)) {
-    fail("pack", `npm pack did not produce a tarball (got "${tarballName}")`);
+  must("pack", ["bun", "pm", "pack", "--filename", tarball], REPO);
+  if (!existsSync(tarball)) {
+    fail("pack", "bun pm pack did not produce a tarball");
   }
   const digest = createHash("sha256").update(readFileSync(tarball)).digest("hex");
   console.log(`Tarball: ${tarballName}`);
@@ -337,6 +337,18 @@ function main(): void {
       }
     }
 
+    if (id !== "static") {
+      const invalid = join(dir, "src", "check-must-fail.ts");
+      writeFileSync(invalid, 'export const value: number = "deliberate type error";\n');
+      try {
+        const result = run(["bun", "check"], dir);
+        if (result.code === 0 || !`${result.stdout}${result.stderr}`.includes("TS2322")) {
+          fail(`accept:${id}`, "bun check did not reject the deliberate type error");
+        }
+      } finally {
+        rmSync(invalid, { force: true });
+      }
+    }
     console.log(`acceptance ok: ${id}`);
   }
 

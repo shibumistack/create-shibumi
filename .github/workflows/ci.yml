@@ -31,9 +31,10 @@ jobs:
           fi
       - name: assert packed tarball matches allowlist and required manifest
         run: |
-          npm pack --dry-run --json > /tmp/pack.json
-          node -e '
-            const files = require("/tmp/pack.json")[0].files.map(f => f.path);
+          bun pm pack --filename /tmp/create-shibumi-ci.tgz
+          tar -tzf /tmp/create-shibumi-ci.tgz > /tmp/create-shibumi-ci-files.txt
+          bun -e '
+            const files = (await Bun.file("/tmp/create-shibumi-ci-files.txt").text()).trim().split("\n").map(p => p.replace(/^package\//, "")).filter(p => p && !p.endsWith("/"));
             const bad = files.filter(p =>
               !/^(LICENSE$|README\.md$|package\.json$|scripts\/(ship|shibumi)\.lock\.json$|src\/(cli|args|adopt|create)\.ts$|src\/templates\/(ship|shibumi)\.ts$|src\/templates\/(static|full-stack|blog)\/)/.test(p)
               || /(^|\/)(\.env|id_rsa|.*\.(pem|key|p12))$/.test(p));
@@ -133,7 +134,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.4.0"
+          bun-version: "1.4.4"
       - run: bun install --frozen-lockfile
       - name: pty prerequisite
         run: python3 --version

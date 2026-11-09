@@ -188,7 +188,8 @@ describe("register and login", () => {
       if (res.status === 429) limited = true;
     }
     expect(limited).toBe(true);
-  });
+    // Ten real Argon2 verifications exceed Bun's 5s default on slower CPUs.
+  }, 30_000);
 
   it("caps an oversized request body (treated as an invalid body)", async () => {
     // The 4 KiB cap makes jsonBody return null; register reports that as 400.

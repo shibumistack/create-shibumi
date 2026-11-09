@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -35,6 +35,24 @@ function runCli(args: string[]) {
 }
 
 describe("cli", () => {
+  it("refuses an unsupported runtime before scaffolding or printing the installer", () => {
+    const argsPath = new URL("../src/args.ts", import.meta.url).pathname;
+    for (const args of [["old-app", "--template", "static", "--yes"], ["--print-installer"]]) {
+      const script = `import { mock } from 'bun:test';
+        const args = await import(${JSON.stringify(argsPath)});
+        const versionProblem = args.bunVersionProblem;
+        mock.module(${JSON.stringify(argsPath)}, () => ({...args, bunVersionProblem: () => versionProblem('1.4.3')}));
+        process.argv = ['bun', ${JSON.stringify(CLI)}, ...${JSON.stringify(args)}];
+        await import(${JSON.stringify(CLI)});`;
+      const proc = Bun.spawnSync([process.execPath, "--eval", script], { cwd: work, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      expect(proc.exitCode).toBe(2);
+      expect(proc.stdout.toString()).toBe("");
+      expect(proc.stderr.toString()).toContain("needs Bun 1.4.4 or newer");
+      expect(proc.stderr.toString()).toContain("bun upgrade");
+      expect(readdirSync(work)).toEqual([]);
+    }
+  });
+
   it("prints help with exit 0", () => {
     const r = runCli(["--help"]);
     expect(r.code).toBe(0);
@@ -141,7 +159,8 @@ describe("cli", () => {
     expect(pkg.name).toBe("data-app");
     expect(pkg.scripts["db:migrate"]).toBe("bun scripts/db.ts migrate");
     expect(pkg.scripts["ship:status"]).toBe("bun scripts/ship.ts --status");
-    expect(pkg.scripts.check).toBe("tsc --noEmit");
+    expect(pkg.scripts.check).toBe("bun check --no-script");
+    expect(pkg.devDependencies.typescript).toBeUndefined();
   });
 
   it("scaffolds the blog template with agentic and SEO surfaces", () => {

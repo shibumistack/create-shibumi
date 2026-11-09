@@ -86,12 +86,23 @@ describe("parseArgs", () => {
 
   it("enforces the Bun version floor with a clear message", () => {
     const { bunVersionProblem } = require("../src/args") as typeof import("../src/args");
-    expect(bunVersionProblem("1.4.0")).toBeNull();
+    expect(bunVersionProblem("1.4.0")).toContain("bun upgrade");
+    expect(bunVersionProblem("1.4.3")).toContain("needs Bun 1.4.4 or newer");
+    expect(bunVersionProblem("1.4.4")).toBeNull();
     expect(bunVersionProblem("1.10.2")).toBeNull();
     expect(bunVersionProblem("2.0.0")).toBeNull();
-    expect(bunVersionProblem("1.2.0")).toContain("needs Bun 1.4.0 or newer");
+    expect(bunVersionProblem("1.2.0")).toContain("needs Bun 1.4.4 or newer");
     expect(bunVersionProblem("1.3.9")).toContain("bun upgrade");
-    expect(bunVersionProblem("1.4.0-canary.1")).toBeNull();
+    expect(bunVersionProblem("1.4.4-canary.1")).toBeNull();
+  });
+
+  it("keeps the runtime floor aligned with package, template and CI engines", async () => {
+    const { MINIMUM_BUN, TEMPLATES } = require("../src/args") as typeof import("../src/args");
+    for (const path of ["../package.json", ...TEMPLATES.map(id => `../src/templates/${id}/package.json`)]) {
+      expect(require(path).engines.bun).toBe(`>=${MINIMUM_BUN}`);
+    }
+    const workflow = await Bun.file(new URL("../.github/workflows/ci.yml", import.meta.url)).text();
+    expect(workflow).toContain(`bun-version: "${MINIMUM_BUN}"`);
   });
 
   it("rejects the dropped static-answer flags as unknown", () => {

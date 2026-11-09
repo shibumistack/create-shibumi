@@ -7,7 +7,7 @@ This is the public source for the `create-shibumi` npm package, the Shibumi Stac
 ```sh
 bun install
 bun test        # CLI tests only (bunfig scopes test root to ./test)
-bun check       # tsc --noEmit
+bun check       # native checker (Bun >=1.4.4); check script uses --no-script
 bun sync:ship   # re-vendor Ship client from the locked immutable snapshot
 ```
 
@@ -16,7 +16,8 @@ bun sync:ship   # re-vendor Ship client from the locked immutable snapshot
 - `src/cli.ts`: entry, prompts, exit codes. `src/args.ts`: strict parser. `src/create.ts`: atomic scaffold. `src/adopt.ts`: `bun create shibumi .` on an existing project (vendor the client, add scripts, generate the static image files).
 - `src/templates/<id>/`: template assets copied verbatim into generated projects (template `test/` folders ship to projects; they are not this package's tests).
 - `src/templates/ship.ts`: vendored Ship client, byte-locked to `scripts/ship.lock.json`. Never edit by hand; update the lock and run `bun sync:ship`.
-- `src/extensions/`: auth and email extension assets; installer lands in a later workstream.
+- `src/extensions/`: bundled auth, email, uploads and admin source; `bun run sync:extensions` regenerates the locked installer.
+- `scripts/e2e.ts` and `scripts/e2e-matrix.ts`: opt-in local/live acceptance. The matrix requires `SHIBUMI_E2E=1`, an ownership-checked disposable full-stack fixture, and an external target file; see `scripts/e2e.md`. It scaffolds every current template twice and restores the original fixture. Never point it at production.
 - Template `.gitignore` files are stored as `gitignore` (npm pack strips dotted ones); `create.ts` renames them at scaffold time.
 
 ## Hard rules
@@ -29,7 +30,14 @@ bun sync:ship   # re-vendor Ship client from the locked immutable snapshot
 
 ## Gotchas
 
-- Never `import` `src/templates/ship.ts` from anything in `include` (tsconfig): the client is authored without `noUncheckedIndexedAccess` and adds ten errors to `bun check` the moment it joins this program. `src/adopt.ts` reuses its static-image generators through a computed dynamic import (specifier in a variable, so tsc leaves it as `any`), always after verifying the checksum lock; tests drive the client through its entry point or a child process instead.
+- Runtime floor is Bun 1.4.4: keep `MINIMUM_BUN`, package/template engines and onboarding requirements aligned. The CLI checks before all paths, including `--print-installer`. Package check scripts must use `bun check --no-script` to avoid recursive script dispatch. No direct `typescript` dependency is needed; keep `@types/bun`.
+
+- `bun run verify:packed` uses `bun pm pack` and runs without a source checkout dependency. Live tests are separate from normal `bun test`; `SHIBUMI_E2E=1 bun run test:e2e:matrix /absolute/target.json` actually replaces, commits, pushes and deploys the dedicated fixture.
+- Agent/non-interactive Ship setup can exit 0 after generating static container files without deploying. Review, commit and push the generated files, rerun setup, and verify the exact commit in server status. Register the generated Compose service (`app`), not the server CLI default (`web`).
+- Static HTML can be fresh in the browser's navigation cache after a deploy or rollback. Live checks use a normal reload, not a cache wipe, and independently check that version B's ETag revalidates to version A's changed HTML after rollback.
+- Blog canonicals have trailing slashes; Markdown alternates use `/posts/<slug>.md`. Set `src/site.ts` to the live origin before publishing, and use `draft: true` to exclude private posts.
+
+- Never `import` `src/templates/ship.ts` from anything in `include` (tsconfig): the client is authored without `noUncheckedIndexedAccess` and adds ten errors to `bun check` the moment it joins this program. `src/adopt.ts` reuses its static-image generators through a computed dynamic import (specifier in a variable, so the checker leaves it as `any`), always after verifying the checksum lock; tests drive the client through its entry point or a child process instead.
 - The Ship client renders its setup plan only when stdin and stdout are both terminals, so the plan path cannot be tested through pipes. `test/fixtures/pty-run.py` owns a pty and feeds keystrokes in once the child goes quiet (`script` cannot do it: it needs its own stdin to be a terminal). Two gotchas it exists to encode: a pty forked with no window size reports zero columns and clack then wraps every single character onto its own line, and the agent-detection env vars of whatever shell runs the tests must be scrubbed (`humanEnv`) or the client takes its non-interactive path. `test/fixtures/fake-tools.ts` stands in for `gh` and `ssh`; its fake origin is a local bare repo wired in as the remote's *push* URL, because `git remote get-url` resolves `url.<base>.insteadOf` and the client refuses a non-GitHub origin.
 
 - `bun build` inlines `process.env.NODE_ENV` at build time (defaults to "development"), so the runtime container `ENV NODE_ENV=production` is ignored in bundled code. Read `process.env["NODE_ENV"]` (bracket form) to force a runtime lookup. Caught only by running the built container, never by unit tests (they run from source). Extensions gate security behavior on this (auth login-link fail-closed).

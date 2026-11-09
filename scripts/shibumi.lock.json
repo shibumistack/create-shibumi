@@ -6,7 +6,7 @@
     },
     {
       "name": "auth",
-      "version": "1.0.1"
+      "version": "1.0.2"
     },
     {
       "name": "email",
@@ -17,5 +17,5 @@
       "version": "1.0.1"
     }
   ],
-  "sha256": "f859ca8e76ee58d8bbafb162ec8e06a794c9db6586759916a8e4b4d45568c5d4"
+  "sha256": "209142239ace4218419e72ec0e05b88ab1b26a7b67e73cc236c9dccfb2e6d826"
 }

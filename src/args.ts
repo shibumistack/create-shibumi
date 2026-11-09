@@ -18,9 +18,9 @@ export type ParseResult =
   | { ok: true; args: ParsedArgs }
   | { ok: false; error: string };
 
-// Declared minimum Bun; template lockfiles use lockfileVersion 2, which
-// older Bun cannot parse, so scaffolding must refuse early and clearly.
-export const MINIMUM_BUN = "1.4.0";
+// Verified baseline for native bun check and the shipped version-2 lockfiles.
+// Keep package/template engines and onboarding requirements aligned.
+export const MINIMUM_BUN = "1.4.4";
 
 export function bunVersionProblem(version: string, minimum = MINIMUM_BUN): string | null {
   const parse = (value: string) => value.split("-")[0]!.split(".").map((part) => Number(part) || 0);

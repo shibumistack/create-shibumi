@@ -8,7 +8,7 @@
     "start": "bun serve.ts",
     "build": "bun scripts/build.ts",
     "preview": "bun scripts/preview.ts",
-    "check": "tsc --noEmit",
+    "check": "bun check --no-script",
     "ship": "bun scripts/ship.ts",
     "ship:setup": "bun scripts/ship.ts --setup --static --output-dir dist --build-script build --no-spa",
     "ship:update": "bun scripts/ship.ts --update",
@@ -21,10 +21,9 @@
   },
   "devDependencies": {
     "@clack/prompts": "1.7.0",
-    "@types/bun": "1.4.0",
-    "typescript": "5.9.2"
+    "@types/bun": "1.4.0"
   },
   "engines": {
-    "bun": ">=1.4.0"
+    "bun": ">=1.4.4"
   }
 }

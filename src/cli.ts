@@ -255,13 +255,13 @@ async function adoptExisting(args: ParsedArgs): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (process.argv.slice(2).includes("--print-installer")) {
-    await printInstaller();
-  }
   const bunProblem = bunVersionProblem(Bun.version);
   if (bunProblem) {
     process.stderr.write(`${bunProblem}\n`);
     process.exit(2);
+  }
+  if (process.argv.slice(2).includes("--print-installer")) {
+    await printInstaller();
   }
   const parsed = parseArgs(process.argv.slice(2));
   if (!parsed.ok) {
